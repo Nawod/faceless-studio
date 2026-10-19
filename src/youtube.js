@@ -1,0 +1,81 @@
+// YouTube Data API v3: OAuth (Desktop/installed client, loopback redirect) + resumable upload with scheduled publish.
+import fs from 'node:fs';
+import { env } from './config.js';
+import { kvGet, kvSet } from './db.js';
+
+const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly'];
+
+export function authUrl(redirectUri) {
+  const p = new URLSearchParams({
+    client_id: env('YOUTUBE_CLIENT_ID'), redirect_uri: redirectUri, response_type: 'code',
+    scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent select_account',
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
+}
+
+export async function exchangeCode(code, redirectUri) {
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code, client_id: env('YOUTUBE_CLIENT_ID'), client_secret: env('YOUTUBE_CLIENT_SECRET'), redirect_uri: redirectUri, grant_type: 'authorization_code' }),
+  });
+  const j = await r.json();
+  if (!j.refresh_token) throw new Error(`OAuth failed: ${JSON.stringify(j)}`);
+  kvSet('youtube_token', { refresh_token: j.refresh_token, access_token: j.access_token, expires: Date.now() + (j.expires_in - 60) * 1000 });
+  return channelInfo();
+}
+
+async function accessToken() {
+  const tok = kvGet('youtube_token');
+  if (!tok) throw new Error('YouTube not connected — open the dashboard and click "Connect YouTube".');
+  if (tok.access_token && tok.expires > Date.now()) return tok.access_token;
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: env('YOUTUBE_CLIENT_ID'), client_secret: env('YOUTUBE_CLIENT_SECRET'), refresh_token: tok.refresh_token, grant_type: 'refresh_token' }),
+  });
+  const j = await r.json();
+  if (!j.access_token) throw new Error(`token refresh failed: ${JSON.stringify(j)}`);
+  kvSet('youtube_token', { ...tok, access_token: j.access_token, expires: Date.now() + (j.expires_in - 60) * 1000 });
+  return j.access_token;
+}
+
+export function isConnected() { return !!kvGet('youtube_token'); }
+
+export async function channelInfo() {
+  const t = await accessToken();
+  const r = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', { headers: { Authorization: `Bearer ${t}` } });
+  const j = await r.json();
+  const c = j.items?.[0];
+  const info = c ? { id: c.id, title: c.snippet.title, subs: c.statistics?.subscriberCount, videos: c.statistics?.videoCount } : null;
+  if (info) kvSet('youtube_channel', info);
+  return info;
+}
+
+/** Next publish slot (UTC HH:MM), at least 30 minutes ahead. */
+export function nextSlot(publishAtUTC = '18:00', leadDays = 0) {
+  const [h, m] = publishAtUTC.split(':').map(Number);
+  const d = new Date(); d.setUTCHours(h, m, 0, 0); d.setUTCDate(d.getUTCDate() + leadDays);
+  while (d.getTime() < Date.now() + 30 * 60_000) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString();
+}
+
+export async function uploadVideo(file, { title, description, tags, categoryId = '27', publishAt, madeForKids = false, synthetic = true }, log) {
+  const t = await accessToken();
+  const size = fs.statSync(file).size;
+  const meta = {
+    snippet: { title: title.slice(0, 100), description: description.slice(0, 4900), tags, categoryId, defaultLanguage: 'en', defaultAudioLanguage: 'en' },
+    status: { privacyStatus: 'private', publishAt, selfDeclaredMadeForKids: madeForKids, containsSyntheticMedia: synthetic, embeddable: true, license: 'youtube' },
+  };
+  const init = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(size), 'X-Upload-Content-Type': 'video/mp4' },
+    body: JSON.stringify(meta),
+  });
+  if (!init.ok) throw new Error(`upload init ${init.status}: ${await init.text()}`);
+  const loc = init.headers.get('location');
+  log?.info(`uploading ${(size / 1e6).toFixed(1)} MB…`);
+  const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(size) }, body: fs.readFileSync(file) });
+  const j = await put.json();
+  if (!put.ok || !j.id) throw new Error(`upload failed ${put.status}: ${JSON.stringify(j).slice(0, 400)}`);
+  log?.info(`uploaded https://youtube.com/shorts/${j.id} (scheduled ${publishAt})`);
+  return j.id;
+}

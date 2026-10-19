@@ -1,0 +1,21 @@
+{
+  "topic": "The day that never ends in Svalbard",
+  "angle": "In Svalbard the sun doesn't set for four months, and Earth's tilt is the bug",
+  "keywords": ["svalbard", "midnight sun", "axial tilt"],
+  "style": "mascot",
+  "mood": "playful",
+  "title": "This Town Has No Night for 4 Months",
+  "description": "Earth's 23.4° tilt breaks the day-night cycle near the poles.",
+  "tags": ["svalbard", "midnight sun", "earth"],
+  "scenes": [
+    { "narration": "Earth has a bug: in one town, the sun just won't set.", "visual": { "kind": "headline", "heading": "The sun won't set", "emphasis": "won't" } },
+    { "narration": "Welcome to Longyearbyen, Svalbard, one of the northernmost towns on the planet.", "visual": { "kind": "map", "heading": "Longyearbyen", "places": [{ "name": "Longyearbyen", "lat": 78.22, "lon": 15.65 }, { "name": "London", "lat": 51.5, "lon": -0.12 }], "broll": "svalbard town snow" } },
+    { "narration": "From April to August, daylight lasts around the clock. That's roughly one hundred and twenty days without a sunset.", "visual": { "kind": "stat", "value": 120, "suffix": " days", "label": "without a sunset", "broll": "midnight sun arctic" } },
+    { "narration": "The cause is Earth's tilt. Our planet leans about twenty three degrees on its axis.", "visual": { "kind": "model3d", "heading": "23.4° tilt", "parts": [{ "shape": "sphere", "pos": [0, 0, 0], "size": [1, 1, 1], "color": "#2F7FD0", "label": "Earth" }, { "shape": "cylinder", "pos": [0, 0, 0], "size": [0.05, 1.6, 0.05], "color": "#E10600", "label": "Axis" }, { "shape": "torus", "pos": [0, 0, 0], "size": [1.2, 0.1, 1.2], "label": "Equator" }] } },
+    { "narration": "In summer the North Pole leans toward the sun, so the far north keeps spinning in daylight.", "visual": { "kind": "list", "heading": "Summer up north", "items": ["Pole tilts toward the sun", "Arctic stays lit", "No sunset for months"] } },
+    { "narration": "Then it flips. Winter brings the polar night, months when the sun never rises at all.", "visual": { "kind": "compare", "heading": "Two extremes", "left": "Midnight sun", "right": "Polar night" } },
+    { "narration": "Locals sleep with blackout curtains in summer, and the town throws a festival when the sun returns.", "visual": { "kind": "icons", "heading": "Life in the light", "emoji": ["🌞", "🛏️", "🪟", "🎉", "❄️"] } },
+    { "narration": "So it's not a glitch after all. It's a feature of a tilted planet. Follow for more of Earth's bugs.", "visual": { "kind": "quote", "heading": "Not a glitch. A feature.", "label": "Earth" } }
+  ],
+  "sources": [{ "title": "Visit Svalbard: Midnight sun", "url": "https://en.visitsvalbard.com/" }]
+}

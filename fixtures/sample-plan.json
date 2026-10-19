@@ -1,0 +1,22 @@
+{
+  "topic": "Octopus intelligence",
+  "angle": "An octopus has nine brains and can taste with its arms",
+  "keywords": ["octopus", "brains", "arms"],
+  "style": "kinetic",
+  "mood": "curious",
+  "title": "This Animal Has 9 Brains (and Tastes With Its Arms)",
+  "description": "Octopuses have a central brain plus a mini-brain in every arm.",
+  "tags": ["octopus", "animals", "science"],
+  "scenes": [
+    { "narration": "This animal has nine brains, and it tastes with its arms.", "visual": { "kind": "headline", "heading": "Nine brains", "emphasis": "Nine" } },
+    { "narration": "Meet the octopus. Two thirds of its neurons are not in its head at all.", "visual": { "kind": "stat", "value": 66, "suffix": "%", "label": "of neurons live in the arms", "broll": "octopus underwater" } },
+    { "narration": "Each arm has its own cluster of nerves that can make decisions without asking the central brain.", "visual": { "kind": "drawing", "heading": "Arms that think", "broll": "octopus tentacles", "svg": "<ellipse cx='200' cy='150' rx='95' ry='85' fill='#E4572E' stroke='#3B2A4A' stroke-width='6'/><circle cx='170' cy='140' r='14' fill='#fff' stroke='#3B2A4A' stroke-width='5'/><circle cx='230' cy='140' r='14' fill='#fff' stroke='#3B2A4A' stroke-width='5'/><path d='M120 210 C 90 280, 60 300, 40 340' fill='none' stroke='#E4572E' stroke-width='18'/><path d='M160 225 C 150 300, 130 330, 120 370' fill='none' stroke='#E4572E' stroke-width='18'/><path d='M240 225 C 250 300, 270 330, 280 370' fill='none' stroke='#E4572E' stroke-width='18'/><path d='M280 210 C 310 280, 340 300, 360 340' fill='none' stroke='#E4572E' stroke-width='18'/><path d='M180 185 Q 200 200 220 185' fill='none' stroke='#3B2A4A' stroke-width='5'/>" } },
+    { "narration": "Their suckers are packed with chemical receptors, so touching a rock is also tasting it.", "visual": { "kind": "list", "heading": "Every sucker can", "items": ["Grip", "Taste", "Smell", "Decide"], "broll": "octopus suckers close up" } },
+    { "narration": "Brain versus arms: the central brain sets the goal, the arms work out the details.", "visual": { "kind": "compare", "heading": "Who's in charge?", "left": "Central brain", "right": "Eight arms", "broll": "octopus crawling" } },
+    { "narration": "Scientists have watched them open jars, escape tanks and even recognise human faces.", "visual": { "kind": "icons", "heading": "Escape artists", "emoji": ["🫙", "🚪", "👀", "🧩", "🦀"], "broll": "octopus aquarium" } },
+    { "narration": "Picture the nervous system as a machine: one hub, eight independent processors.", "visual": { "kind": "model3d", "heading": "One hub, eight processors", "broll": "octopus swimming", "parts": [ { "shape": "sphere", "pos": [0, 0.35, 0], "size": [0.6, 0.6, 0.6], "color": "#E4572E", "label": "Central brain" }, { "shape": "cylinder", "pos": [-0.55, -0.35, 0], "size": [0.18, 0.7, 0.18], "label": "Arm ganglia" }, { "shape": "cylinder", "pos": [0.55, -0.35, 0], "size": [0.18, 0.7, 0.18] }, { "shape": "cylinder", "pos": [0, -0.35, 0.55], "size": [0.18, 0.7, 0.18] }, { "shape": "cylinder", "pos": [0, -0.35, -0.55], "size": [0.18, 0.7, 0.18] }, { "shape": "torus", "pos": [0, 0, 0], "size": [0.9, 0.3, 0.9], "label": "Nerve ring" } ] } },
+    { "narration": "Their family tree split from ours more than five hundred million years ago.", "visual": { "kind": "timeline", "items": ["600M — last common ancestor", "500M — first cephalopods", "300M — octopus body plan", "Today — 300 species"], "broll": "deep ocean" } },
+    { "narration": "As one researcher put it, an octopus is the closest we'll get to meeting an alien. Nine brains, and it tastes with its arms. Follow for more like this.", "visual": { "kind": "quote", "heading": "The closest we'll get to meeting an alien", "label": "Peter Godfrey-Smith", "broll": "octopus eye close up" } }
+  ],
+  "sources": []
+}

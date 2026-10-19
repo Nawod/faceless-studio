@@ -1,0 +1,23 @@
+{
+  "name": "faceless-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Autonomous faceless YouTube Shorts studio: trend discovery, scripting, voice, code-rendered animation, scheduled upload.",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "daily": "node --disable-warning=ExperimentalWarning src/daily.js",
+    "make": "node --disable-warning=ExperimentalWarning src/daily.js --no-upload",
+    "preview": "node --disable-warning=ExperimentalWarning src/preview.js",
+    "fonts": "node src/tools/fetch-fonts.js",
+    "doctor": "node --disable-warning=ExperimentalWarning src/tools/doctor.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "playwright-core": "^1.49.1",
+    "three": "^0.170.0"
+  }
+}

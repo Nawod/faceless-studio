@@ -1,0 +1,67 @@
+{
+  "channelName": "Earth Has Bugs",
+  "brand": {
+    "handle": "@EarthHasBugs",
+    "url": "https://www.youtube.com/@EarthHasBugs",
+    "watermark": "assets/brand/globe.png",
+    "wordmark": "assets/brand/wordmark.png",
+    "voiceLine": "Earth has bugs. This is one of them."
+  },
+  "audience": "Curious adults and teens in the USA and UK",
+  "language": "en",
+  "niche": {
+    "primary": "Real, verified facts that feel like glitches in Earth's code: bizarre animals and nature, physics and space anomalies, the human body, strange places, history's weird coincidences, and everyday things that make no sense until explained. Frame each topic as a 'bug' in reality, then explain the real science behind it.",
+    "avoid": [
+      "medical or financial advice",
+      "partisan politics and elections",
+      "tragedies, violence, crime involving real victims",
+      "content about minors",
+      "celebrity gossip and rumours",
+      "conspiracy theories presented as fact",
+      "anything that cannot be backed by at least two reputable sources"
+    ],
+    "trendWeight": 0.4
+  },
+  "video": {
+    "targetSeconds": 68,
+    "minSeconds": 61,
+    "maxSeconds": 85,
+    "fps": 30,
+    "width": 1080,
+    "height": 1920
+  },
+  "styles": {
+    "kinetic": { "enabled": true, "bestFor": "tech, business, money, companies, 'how X works', lists, stats, comparisons" },
+    "collage": { "enabled": true, "bestFor": "psychology, self-improvement, history, culture, ideas, quotes, 'why we do X'" },
+    "crayon": { "enabled": true, "bestFor": "wholesome stories, animals, nature, space for beginners, origins of everyday things, simple science" },
+    "documentary": { "enabled": true, "bestFor": "animals in action, nature, oceans, places, mysteries, events with real-world visuals" },
+    "blueprint3d": { "enabled": true, "bestFor": "engineering, inventions, machines, space hardware, architecture, how a device works inside" },
+    "mascot": { "enabled": true, "bestFor": "fun weird facts, everyday mysteries, 'why does X happen', body facts, light science; the channel's Earth mascot hosts" },
+    "globe3d": { "enabled": true, "bestFor": "places on Earth, geography, migrations, weather, oceans, borders, 'the only place where…', time zones, plate tectonics" },
+    "newsflash": { "enabled": true, "bestFor": "recent discoveries, new studies, space missions, record-breaking events, 'scientists just found…' topics with reputable sources" }
+  },
+  "variety": {
+    "maxSameStyleInARow": 2,
+    "dedupDays": 90,
+    "similarityThreshold": 0.42
+  },
+  "voice": {
+    "edge": ["en-US-AndrewMultilingualNeural", "en-US-AvaMultilingualNeural", "en-GB-RyanNeural", "en-US-BrianMultilingualNeural", "en-GB-SoniaNeural"],
+    "google": ["en-US-Neural2-J", "en-US-Neural2-F", "en-GB-Neural2-B", "en-GB-Neural2-C"],
+    "rate": "+6%"
+  },
+  "schedule": {
+    "enabled": true,
+    "runAtLocal": "06:30",
+    "publishAtUTC": "18:00",
+    "timezoneNote": "18:00 UTC = 7pm UK (BST: 7pm, GMT: 6pm) and 2pm New York (EDT) — a strong overlap slot for US+UK.",
+    "leadDays": 0
+  },
+  "youtube": {
+    "categoryId": "27",
+    "defaultTags": ["shorts", "earthhasbugs", "facts", "science", "didyouknow"],
+    "madeForKids": false,
+    "containsSyntheticMedia": true,
+    "autoUpload": true
+  }
+}
