@@ -31,14 +31,38 @@
     "height": 1920
   },
   "styles": {
-    "kinetic": { "enabled": true, "bestFor": "tech, business, money, companies, 'how X works', lists, stats, comparisons" },
-    "collage": { "enabled": true, "bestFor": "psychology, self-improvement, history, culture, ideas, quotes, 'why we do X'" },
-    "crayon": { "enabled": true, "bestFor": "wholesome stories, animals, nature, space for beginners, origins of everyday things, simple science" },
-    "documentary": { "enabled": true, "bestFor": "animals in action, nature, oceans, places, mysteries, events with real-world visuals" },
-    "blueprint3d": { "enabled": true, "bestFor": "engineering, inventions, machines, space hardware, architecture, how a device works inside" },
-    "mascot": { "enabled": true, "bestFor": "fun weird facts, everyday mysteries, 'why does X happen', body facts, light science; the channel's Earth mascot hosts" },
-    "globe3d": { "enabled": true, "bestFor": "places on Earth, geography, migrations, weather, oceans, borders, 'the only place where…', time zones, plate tectonics" },
-    "newsflash": { "enabled": true, "bestFor": "recent discoveries, new studies, space missions, record-breaking events, 'scientists just found…' topics with reputable sources" }
+    "kinetic": {
+      "enabled": true,
+      "bestFor": "tech, business, money, companies, 'how X works', lists, stats, comparisons"
+    },
+    "collage": {
+      "enabled": true,
+      "bestFor": "psychology, self-improvement, history, culture, ideas, quotes, 'why we do X'"
+    },
+    "crayon": {
+      "enabled": true,
+      "bestFor": "wholesome stories, animals, nature, space for beginners, origins of everyday things, simple science"
+    },
+    "documentary": {
+      "enabled": true,
+      "bestFor": "animals in action, nature, oceans, places, mysteries, events with real-world visuals"
+    },
+    "blueprint3d": {
+      "enabled": true,
+      "bestFor": "engineering, inventions, machines, space hardware, architecture, how a device works inside"
+    },
+    "mascot": {
+      "enabled": true,
+      "bestFor": "fun weird facts, everyday mysteries, 'why does X happen', body facts, light science; the channel's Earth mascot hosts"
+    },
+    "globe3d": {
+      "enabled": true,
+      "bestFor": "places on Earth, geography, migrations, weather, oceans, borders, 'the only place where…', time zones, plate tectonics"
+    },
+    "newsflash": {
+      "enabled": true,
+      "bestFor": "recent discoveries, new studies, space missions, record-breaking events, 'scientists just found…' topics with reputable sources"
+    }
   },
   "variety": {
     "maxSameStyleInARow": 2,
@@ -46,8 +70,19 @@
     "similarityThreshold": 0.42
   },
   "voice": {
-    "edge": ["en-US-AndrewMultilingualNeural", "en-US-AvaMultilingualNeural", "en-GB-RyanNeural", "en-US-BrianMultilingualNeural", "en-GB-SoniaNeural"],
-    "google": ["en-US-Neural2-J", "en-US-Neural2-F", "en-GB-Neural2-B", "en-GB-Neural2-C"],
+    "edge": [
+      "en-US-AndrewMultilingualNeural",
+      "en-US-AvaMultilingualNeural",
+      "en-GB-RyanNeural",
+      "en-US-BrianMultilingualNeural",
+      "en-GB-SoniaNeural"
+    ],
+    "google": [
+      "en-US-Neural2-J",
+      "en-US-Neural2-F",
+      "en-GB-Neural2-B",
+      "en-GB-Neural2-C"
+    ],
     "rate": "+6%"
   },
   "schedule": {
@@ -59,7 +94,13 @@
   },
   "youtube": {
     "categoryId": "27",
-    "defaultTags": ["shorts", "earthhasbugs", "facts", "science", "didyouknow"],
+    "defaultTags": [
+      "shorts",
+      "earthhasbugs",
+      "facts",
+      "science",
+      "didyouknow"
+    ],
     "madeForKids": false,
     "containsSyntheticMedia": true,
     "autoUpload": true

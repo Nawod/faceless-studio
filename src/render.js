@@ -52,39 +52,62 @@ export async function contactSheet(files, out, cols = 4) {
   return out;
 }
 
-export async function renderVideo(html, { duration, fps = 30, W = 1080, H = 1920, out, workers, log }) {
+export async function renderVideo(html, { duration, fps = 30, W = 1080, H = 1920, out, workers, log, onProgress, shouldCancel }) {
   const total = Math.round(duration * fps);
   const WK = workers || Math.max(1, Math.min(6, os.cpus().length - 2));
   const segDir = fs.mkdtempSync(path.join(path.dirname(out), '.segs-'));
   const per = Math.ceil(total / WK), t0 = Date.now();
-  let done = 0;
+  let done = 0, firstError = null;
+  const procs = new Set();
+  const fail = e => { if (!firstError) { firstError = e; log?.warn(`render worker failed: ${e.message}`); for (const p of procs) p.kill(); } };
   try {
-    await Promise.all([...Array(WK)].map(async (_, w) => {
+    await Promise.allSettled([...Array(WK)].map(async (_, w) => {
       const a = w * per, b = Math.min(total, a + per);
       if (a >= b) return;
-      const { browser, page, errors } = await openPage(html, W, H);
-      const ff = spawn(bins.ffmpeg, ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-',
-        '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), `seg_${String(w).padStart(2, '0')}.mp4`], { cwd: segDir, windowsHide: true });
-      let ffErr = ''; ff.stderr.on('data', d => (ffErr += d));
-      const closed = new Promise(r => ff.on('close', r));
+      let browser = null, ff = null;
       try {
+        const opened = await openPage(html, W, H); browser = opened.browser;
+        const { page, errors } = opened;
+        if (firstError) return;
+        ff = spawn(bins.ffmpeg, ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-',
+          '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), `seg_${String(w).padStart(2, '0')}.mp4`], { cwd: segDir, windowsHide: true });
+        procs.add(ff);
+        let ffErr = ''; ff.stderr.on('data', d => (ffErr += d));
+        const closed = new Promise(r => ff.on('close', r));
+        ff.stdin.on('error', () => {});
         for (let f = a; f < b; f++) {
+          if (firstError) return;                     // another worker failed: stop quietly
           await page.evaluate(t => window.render(t), f / fps);
           const buf = await page.screenshot({ type: 'jpeg', quality: 93 });
           if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once('drain', r));
           if (++done % 150 === 0) log?.info(`rendered ${done}/${total} frames (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+          if (done % 30 === 0) {
+            const stop = shouldCancel?.(); if (stop) throw stop;
+            const el = (Date.now() - t0) / 1000; onProgress?.(done, total, Math.round(el / done * (total - done)));
+          }
           if (errors.length) throw new Error(`page error at ${(f / fps).toFixed(2)}s: ${errors[0]}`);
         }
-      } finally { ff.stdin.end(); await browser.close(); }
-      const code = await closed;
-      if (code !== 0) throw new Error(`ffmpeg segment ${w} failed: ${ffErr}`);
+        ff.stdin.end();
+        const code = await closed;
+        if (code !== 0 && !firstError) throw new Error(`ffmpeg segment ${w} failed: ${ffErr.slice(0, 300)}`);
+      } catch (e) { fail(e); }
+      finally {
+        if (ff && firstError) ff.kill();
+        if (ff) { procs.delete(ff); }
+        await browser?.close().catch(() => {});
+      }
     }));
+    if (firstError) throw firstError;
     const segs = fs.readdirSync(segDir).filter(f => f.endsWith('.mp4')).sort();
     fs.writeFileSync(path.join(segDir, 'list.txt'), segs.map(s => `file '${s}'`).join('\n'));
     await exec(bins.ffmpeg, ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', path.resolve(out)], { cwd: segDir, windowsHide: true });
     log?.info(`video rendered in ${((Date.now() - t0) / 1000).toFixed(0)}s (${total} frames, ${WK} workers)`);
     return out;
-  } finally { fs.rmSync(segDir, { recursive: true, force: true }); }
+  } finally {
+    // ffmpeg may still be releasing files on Windows; retry, and never let cleanup hide the real error.
+    try { fs.rmSync(segDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 400 }); }
+    catch (e) { log?.warn(`could not remove temp folder ${segDir}: ${e.code}`); }
+  }
 }
 
 export async function mux(video, audio, out) {

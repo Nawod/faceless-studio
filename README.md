@@ -69,6 +69,16 @@ This registers two tasks: a daily run at `runAtLocal` (06:30 by default) that ca
 
 The free tier (512 MB RAM, 0.1 CPU, sleeps after 15 minutes idle, no cron) **can't render video**. Headless Chrome plus ffmpeg needs about 2 GB and real CPU. Keep the worker on this PC. Render would only make sense for a read-only status page, so it isn't set up. For true 24/7 operation, use a ~$20–40/month VPS (4 vCPU / 8 GB) with this same code.
 
+## If a run stops halfway
+
+Every stage is saved as it finishes. If the app or PC stops mid-run, the dashboard marks that run **interrupted** the next time it starts:
+
+- **Resume** continues from the last finished stage, keeping the topic, script, voice and footage.
+- **Start over** redoes everything for that run, with a new topic.
+- **Cancel** (on the live progress panel) stops a run at the next safe point; you can resume it later.
+
+If today's scheduled run was interrupted, the scheduler resumes it automatically (at most twice). A run counts as alive only while it keeps refreshing its lock every 20 s, so a crashed process can never block new runs for long.
+
 ## Commands
 
 | | |

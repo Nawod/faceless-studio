@@ -34,10 +34,27 @@ function which(cmd) {
 }
 
 // The Claude desktop app bundles the Claude Code CLI under %APPDATA%/Claude/claude-code/<version>/<hash>/claude.exe
+// On Windows, `where claude` also lists npm's extensionless sh shim, which spawn() can't run.
+// Use a real .exe, or resolve a .cmd shim to the .exe it launches.
+function resolveWinShim(p) {
+  if (/\.exe$/i.test(p)) return fs.existsSync(p) ? p : '';
+  if (!/\.cmd$/i.test(p)) return '';
+  const m = fs.readFileSync(p, 'utf8').match(/"%dp0%\\?([^"]+\.exe)"/i);
+  const exe = m ? path.join(path.dirname(p), m[1]) : '';
+  return exe && fs.existsSync(exe) ? exe : '';
+}
+
 function findClaude() {
   if (env('CLAUDE_BIN')) return env('CLAUDE_BIN');
-  const onPath = which('claude');
-  if (onPath) return onPath;
+  if (process.platform === 'win32') {
+    try {
+      const hits = execFileSync('where', ['claude'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\r?\n/).filter(Boolean);
+      for (const h of hits) { const exe = resolveWinShim(h); if (exe) return exe; }
+    } catch {}
+  } else {
+    const onPath = which('claude');
+    if (onPath) return onPath;
+  }
   const base = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code');
   if (!fs.existsSync(base)) return '';
   const versions = fs.readdirSync(base).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).reverse();

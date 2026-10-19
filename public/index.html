@@ -19,6 +19,20 @@
 </header>
 
 <main>
+  <section class="card live" id="live" hidden>
+    <div class="live-head">
+      <div>
+        <div class="k"><span class="pulse"></span> Making a video now</div>
+        <div class="live-title" id="liveTitle">Starting…</div>
+        <div class="s" id="liveMeta"></div>
+      </div>
+      <button id="cancelRun" class="danger">Cancel</button>
+    </div>
+    <ol class="steps" id="steps"></ol>
+    <div class="bar"><div class="fill" id="barFill"></div></div>
+    <div class="live-foot"><span id="liveDetail"></span><span id="livePct" class="pct"></span></div>
+  </section>
+
   <section class="grid">
     <div class="card"><div class="k">Now</div><div class="v" id="nowState">—</div><div class="s" id="nowSub"></div></div>
     <div class="card"><div class="k">Next automatic run</div><div class="v" id="nextRun">—</div><div class="s">local time · daily</div></div>

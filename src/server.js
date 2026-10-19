@@ -1,10 +1,11 @@
 // Dashboard + API + in-process daily scheduler.   npm start → http://localhost:3020
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { channel, saveChannel, env, ROOT, RUNS, bins } from './config.js';
-import { db, getRun, kvGet } from './db.js';
-import { runPipeline, todaysRun, newRunId } from './pipeline.js';
+import { db, getRun, kvGet, kvSet } from './db.js';
+import { runPipeline, todaysRun, newRunId, reconcileStaleRuns, lockOwnerAlive, STAGES, getProgress, requestCancel, resetRun } from './pipeline.js';
 import { authUrl, exchangeCode, isConnected, channelInfo, nextSlot } from './youtube.js';
 import { recentTopics } from './dedup.js';
 
@@ -23,9 +24,16 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(ROOT, 'public')));
 
+// Claude auth = a setup-token in .env, or the CLI's own saved login (~/.claude/.credentials.json).
+const claudeAuthPresent = () => !!env('CLAUDE_CODE_OAUTH_TOKEN') || fs.existsSync(path.join(os.homedir(), '.claude', '.credentials.json'));
+
+const stale = reconcileStaleRuns();
+if (stale) console.log(`${stale} unfinished run(s) marked as interrupted — resume them from the dashboard`);
+
 let current = null; // { runId, stage, promise }
 function start(opts = {}) {
   if (current) throw new Error(`a run is already in progress (${current.runId})`);
+  if (lockOwnerAlive()) throw new Error(`a run is already in progress in another window (${kvGet('lock').runId})`);
   const runId = opts.runId || newRunId();
   current = { runId, stage: 'starting' };
   current.promise = runPipeline({ ...opts, runId, onStage: s => { if (current) current.stage = s; } })
@@ -43,13 +51,16 @@ function nextRunLocal() {
 // ---------- API ----------
 app.get('/api/status', async (req, res) => {
   const cfg = channel();
+  const runId = current?.runId || (lockOwnerAlive() ? kvGet('lock').runId : null);
+  const r = runId ? getRun(runId) : null;
+  const prog = getProgress();
   res.json({
-    running: current ? { runId: current.runId, stage: current.stage }
-      : (l => l && Date.now() - l.at < 3 * 3600_000 ? { runId: l.runId, stage: getRun(l.runId)?.stage || 'running', external: true } : null)(kvGet('lock')),
+    running: runId ? { runId, stage: r?.stage || current?.stage, title: r?.title, topic: r?.topic, style: r?.style, external: !current, progress: prog?.runId === runId ? prog : null, cancelling: kvGet('cancel') === runId } : null,
+    stages: STAGES,
     nextRun: nextRunLocal(), nextPublish: nextSlot(cfg.schedule.publishAtUTC, cfg.schedule.leadDays),
     youtube: { connected: isConnected(), channel: kvGet('youtube_channel'), configured: !!(env('YOUTUBE_CLIENT_ID') && env('YOUTUBE_CLIENT_SECRET')) },
     checks: {
-      claude: !!bins.claude, claudeToken: !!env('CLAUDE_CODE_OAUTH_TOKEN'), chrome: !!bins.chrome,
+      claude: !!bins.claude, claudeToken: claudeAuthPresent(), chrome: !!bins.chrome,
       pexels: !!(env('PIXABAY_API_KEY') || env('PEXELS_API_KEY')), fonts: fs.existsSync(path.join(ROOT, 'engines', 'fonts', 'fonts.css')),
     },
     totals: db.prepare("SELECT COUNT(*) n, SUM(status='done') done, SUM(status='failed') failed, SUM(youtube_id IS NOT NULL) uploaded FROM runs").get(),
@@ -73,9 +84,27 @@ app.post('/api/run', (req, res) => {
   try { res.json({ runId: start({ upload: req.body?.upload, style: req.body?.style || undefined }) }); }
   catch (e) { res.status(409).json({ error: e.message }); }
 });
-app.post('/api/runs/:id/retry', (req, res) => {
+// Resume: continue from the last completed stage (keeps topic, script, voice, footage).
+const resume = (req, res) => {
+  if (!getRun(req.params.id)) return res.status(404).json({ error: 'no such run' });
   try { res.json({ runId: start({ runId: req.params.id, upload: req.body?.upload }) }); }
   catch (e) { res.status(409).json({ error: e.message }); }
+};
+app.post('/api/runs/:id/resume', resume);
+app.post('/api/runs/:id/retry', resume);
+// Start over: forget every stage (new topic, new script) but keep the same run slot.
+app.post('/api/runs/:id/restart', (req, res) => {
+  if (!getRun(req.params.id)) return res.status(404).json({ error: 'no such run' });
+  if (current?.runId === req.params.id || (lockOwnerAlive() && kvGet('lock').runId === req.params.id)) return res.status(409).json({ error: 'cancel the run first' });
+  resetRun(req.params.id);
+  try { res.json({ runId: start({ runId: req.params.id, upload: req.body?.upload }) }); }
+  catch (e) { res.status(409).json({ error: e.message }); }
+});
+app.post('/api/runs/:id/cancel', (req, res) => {
+  const active = current?.runId === req.params.id || (lockOwnerAlive() && kvGet('lock').runId === req.params.id);
+  if (!active) return res.status(400).json({ error: 'that run is not running' });
+  requestCancel(req.params.id);
+  res.json({ ok: true, note: 'Stopping at the next safe point (a few seconds while rendering; Claude steps finish their current call first).' });
 });
 app.post('/api/runs/:id/upload', (req, res) => {
   const r = getRun(req.params.id);
@@ -107,14 +136,20 @@ app.post('/api/youtube/refresh', async (req, res) => { try { res.json(await chan
 // ---------- scheduler: once per day at runAtLocal ----------
 let warned = false;
 setInterval(() => {
-  if (current || todaysRun() || channel().schedule.enabled === false) return;
-  if (!env('CLAUDE_CODE_OAUTH_TOKEN') && !warned) { warned = true; console.warn('scheduler: CLAUDE_CODE_OAUTH_TOKEN not set — automatic runs are paused'); }
-  if (!env('CLAUDE_CODE_OAUTH_TOKEN')) return;
+  if (current || lockOwnerAlive() || channel().schedule.enabled === false) return;
+  if (!claudeAuthPresent() && !warned) { warned = true; console.warn('scheduler: no Claude login (run `claude` → /login, or set CLAUDE_CODE_OAUTH_TOKEN) — automatic runs are paused'); }
+  if (!claudeAuthPresent()) return;
   const [h, m] = channel().schedule.runAtLocal.split(':').map(Number);
   const nowD = new Date();
-  if (nowD.getHours() * 60 + nowD.getMinutes() >= h * 60 + m) {
+  if (nowD.getHours() * 60 + nowD.getMinutes() < h * 60 + m) return;
+  const today = todaysRun();
+  if (!today) {
     console.log('scheduler: starting today\'s run');
     try { start({}); } catch (e) { console.error(e.message); }
+  } else if (today.status === 'interrupted') {
+    // The PC or app stopped mid-run: pick it up again automatically (at most twice a day).
+    const k = `autoresume:${today.id}`, n = kvGet(k, 0);
+    if (n < 2) { kvSet(k, n + 1); console.log(`scheduler: resuming interrupted run ${today.id}`); try { start({ runId: today.id }); } catch (e) { console.error(e.message); } }
   }
 }, 60_000);
 
