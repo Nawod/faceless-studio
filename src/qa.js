@@ -23,10 +23,17 @@ export async function reviewStills(html, spec, plan, dir, log) {
   const sheet = await contactSheet(files, path.join(dir, 'sheet.jpg'), 4);
   const prompt = `You are the QA editor for a YouTube Shorts channel. Read the image file "${sheet}" (a contact sheet: one frame per scene, left→right, top→bottom, scene 1 first; style "${plan.style}").
 Also read the individual frames in "${path.join(dir, 'stills')}" if you need detail.
-Check each frame for: text overlapping other text, text cut off at the frame edge, unreadable text (low contrast), empty/blank frames, broken drawings (scribbles that don't look like the intended object), off-topic stock footage, anything inappropriate. The caption line near 2/3 height is expected.
+The video is about: ${plan.subject?.name || plan.topic}.
+Check each frame for:
+- RELEVANCE (most important): does the frame visibly show what that scene's narration is talking about? Is the main subject (${plan.subject?.name || plan.topic}) actually visible in scene 1 and in most scenes? A frame showing only words, a blank blob, or an unrelated picture is a failure.
+- text overlapping other text, text cut off at the frame edge, unreadable text (low contrast), numbers formatted wrongly (e.g. a year shown as "2,019")
+- empty/blank frames, broken drawings (scribbles that don't look like the intended object), off-topic stock footage, anything inappropriate.
+The caption line near 2/3 height and the small logo top-left are expected.
+Scene narration:
+${plan.scenes.map((s, i) => `${i + 1}. ${s.narration}`).join('\n')}
 Scene visuals as planned:
 ${plan.scenes.map((s, i) => `${i + 1}. [${s.visual.kind}] ${JSON.stringify({ ...s.visual, svg: s.visual.svg ? '(svg)' : undefined, img: undefined, video: undefined })}`).join('\n')}
-pass=false only for problems a viewer would notice. For any broken scene you may return patches: a replacement visual object (same schema: kind, heading, emphasis, value, prefix, suffix, label, items, left, right, svg, emoji, parts) — keep broll unchanged. Return JSON.`;
+pass=false for any problem a viewer would notice, especially frames that don't show what is being said. For every failing scene return a patch: a replacement visual object (kind, heading, emphasis, value, prefix, suffix, label, items, left, right, svg, emoji, parts, places, broll). Prefer kind "image" (a real photo of the thing — set broll to an exact 2-4 word stock search) or, in drawing styles, kind "drawing" with a recognisable 8-25 shape svg of the thing being said. Return JSON.`;
   try {
     const r = await askClaude(prompt, { schema: QA_SCHEMA, model: env('CLAUDE_FAST_MODEL', 'sonnet'), tools: ['Read'], maxTurns: 8, cwd: dir, log, timeoutMs: 8 * 60_000 });
     log.info(`QA score ${r.score}/10, ${r.pass ? 'pass' : 'fail'}${r.issues?.length ? ': ' + r.issues.map(x => `#${x.scene} ${x.problem}`).join('; ') : ''}`);

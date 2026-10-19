@@ -16,6 +16,17 @@ const PALETTES = {
   newsflash: ['#E10600', '#E10600', '#FFB800'],
 };
 
+// A scene that asks for a picture but has none gets the subject's photo / drawing, never an empty frame.
+const FOOTAGE = ['documentary', 'newsflash'];
+function withSubject(v = {}, subject, style) {
+  if (!subject) return v;
+  if (FOOTAGE.includes(style) && !v.img && !v.video && subject.img) return { ...v, img: subject.img };
+  if (v.kind === 'image' && !v.img && !v.video && subject.img) return { ...v, img: subject.img };
+  if (v.kind === 'image' && !v.img && !v.video && !subject.img && subject.svg) return { ...v, kind: 'drawing', svg: subject.svg };
+  if (v.kind === 'drawing' && !(v.svg || '').trim() && subject.svg) return { ...v, svg: subject.svg };
+  return v;
+}
+
 export function composeSpec({ plan, timings, words, voiceDelay, duration, seed, cfg }) {
   const pal = PALETTES[plan.style] || PALETTES.kinetic;
   const accent = /^#[0-9a-f]{6}$/i.test(plan.accent || '') && !['blueprint3d', 'documentary', 'newsflash'].includes(plan.style) ? plan.accent : pal[seed % pal.length];
@@ -30,7 +41,8 @@ export function composeSpec({ plan, timings, words, voiceDelay, duration, seed, 
       globe: pathToFileURL(path.join(ROOT, cfg.brand.watermark)).href,
       wordmark: pathToFileURL(path.join(ROOT, cfg.brand.wordmark)).href,
     } : null,
-    scenes: plan.scenes.map((s, i) => ({ narration: s.narration, visual: s.visual, start: timings[i].start + (i ? voiceDelay : 0), end: timings[i].end + voiceDelay })),
+    subject: plan.subject ? { name: plan.subject.name, img: plan.subject.img || null, svg: plan.subject.svg || '' } : null,
+    scenes: plan.scenes.map((s, i) => ({ narration: s.narration, visual: withSubject(s.visual, plan.subject, plan.style), start: timings[i].start + (i ? voiceDelay : 0), end: timings[i].end + voiceDelay })),
     words: words.map(w => ({ word: w.word, start: +(w.start + voiceDelay).toFixed(3), end: +(w.end + voiceDelay).toFixed(3) })),
   };
 }

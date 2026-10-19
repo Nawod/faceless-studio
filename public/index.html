@@ -37,7 +37,7 @@
     <div class="card"><div class="k">Now</div><div class="v" id="nowState">—</div><div class="s" id="nowSub"></div></div>
     <div class="card"><div class="k">Next automatic run</div><div class="v" id="nextRun">—</div><div class="s">local time · daily</div></div>
     <div class="card"><div class="k">Next publish slot</div><div class="v" id="nextPub">—</div><div class="s">your time · scheduled on YouTube</div></div>
-    <div class="card"><div class="k">Videos</div><div class="v" id="totals">—</div><div class="s" id="totalsSub"></div></div>
+    <div class="card"><div class="k">Daily quota</div><div class="v" id="totals">—</div><div class="s" id="totalsSub"></div></div>
   </section>
 
   <section class="card setup" id="setup">
@@ -62,9 +62,10 @@
           <label>Target seconds <input name="targetSeconds" type="number" min="61" max="170"></label>
         </div>
         <div class="two">
-          <label>Run at (local) <input name="runAtLocal" type="time"></label>
-          <label>Publish at (UTC) <input name="publishAtUTC" type="time"></label>
+          <label>Start making videos at (your time) <input name="runAtLocal" type="time"></label>
+          <label>Videos per day <input name="videosPerDay" type="number" min="1" max="6"></label>
         </div>
+        <label>Publish slots, UTC (each video takes the next free one) <input name="publishSlotsUTC" placeholder="13:00, 18:00, 22:00"></label>
         <fieldset><legend>Styles</legend><div id="styleToggles"></div></fieldset>
         <label class="toggle"><input type="checkbox" name="autoUpload"> Upload & schedule automatically</label>
         <button class="primary" type="submit">Save settings</button> <span id="saved" class="muted"></span>

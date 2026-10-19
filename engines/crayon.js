@@ -116,19 +116,63 @@
   }
 
   // ---------- scene content ----------
+  const SUBJ = S.subject || {};
+  const photos = {};
   const items = scenes.map((sc, i) => {
     let v = sc.visual || { kind: 'headline' };
-    if (['image', 'model3d'].includes(v.kind) || !v.kind) v = { ...v, kind: v.svg ? 'drawing' : 'headline', heading: v.heading || sc.narration.split(/\s+/).slice(0, 4).join(' ') };
+    if (v.kind === 'image' && v.img) v = { ...v, kind: 'photo' };
+    else if (['image', 'model3d', 'map'].includes(v.kind) || !v.kind) v = { ...v, kind: v.svg || SUBJ.svg ? 'drawing' : 'headline', svg: v.svg || SUBJ.svg, heading: v.heading || sc.narration.split(/\s+/).slice(0, 4).join(' ') };
+    // text-only scenes still show the subject: its drawing sits above the words
+    const withSubject = ['headline', 'quote'].includes(v.kind) && SUBJ.svg;
+    if (v.kind === 'photo') photos[i] = FS.loadImage(v.img).then(img => { photos[i] = img; });
     const washes = BOX.filter(c => c !== ACC);
-    return { v, shapes: v.kind === 'drawing' ? parseDrawing(v.svg) : [], wash: washes[(i + S.seed) % washes.length], seed: i * 13 + 1 };
+    return { v, withSubject, shapes: v.kind === 'drawing' ? parseDrawing(v.svg) : withSubject ? parseDrawing(SUBJ.svg) : [], wash: washes[(i + S.seed) % washes.length], seed: i * 13 + 1 };
   });
 
+  // a real photo taped onto the page (drawn under the wax so crayon scribbles can frame it)
+  function drawPhoto(i, local) {
+    const img = photos[i]; if (!img || !img.width) return;
+    const p = E.outBack(inv(0.05, 0.5, local), 1.6);
+    const w = 760, h = 640, x = i * PAGE_STEP + W / 2, y = 700;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-0.04 + (1 - p) * 0.2); ctx.scale(p, p);
+    ctx.fillStyle = '#fffdf6'; ctx.shadowColor = 'rgba(60,40,10,0.25)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
+    ctx.fillRect(-w / 2 - 22, -h / 2 - 22, w + 44, h + 90); ctx.shadowColor = 'transparent';
+    const s = Math.max(w / img.width, h / img.height), iw = img.width * s, ih = img.height * s;
+    ctx.save(); ctx.beginPath(); ctx.rect(-w / 2, -h / 2, w, h); ctx.clip(); ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih); ctx.restore();
+    ctx.fillStyle = 'rgba(246,231,184,0.85)';
+    [[-w / 2 + 20, -h / 2 - 30, -0.5], [w / 2 - 20, -h / 2 - 30, 0.5]].forEach(([tx, ty, r]) => { ctx.save(); ctx.translate(tx, ty); ctx.rotate(r); ctx.fillRect(-70, -18, 140, 36); ctx.restore(); });
+    ctx.restore();
+  }
+
+  function drawShapes(shapes, local, dur, seed, boil, x, y, scale) {
+    L.save(); L.translate(x, y); L.scale(scale, scale);
+    const n = shapes.length, per = Math.min(0.55, (dur * 0.6) / Math.max(1, n));
+    shapes.forEach((s, k) => {
+      const t0 = 0.2 + k * per * 0.8;
+      const pLine = E.inOutCubic(inv(t0, t0 + per, local)), pFill = inv(t0 + per * 0.6, t0 + per * 0.6 + 0.7, local);
+      if (s.fill && s.closed) hatch(s.pts, pFill, s.fill, seed + k, boil);
+      if (s.stroke) crayonLine(s.pts, pLine, s.stroke, Math.max(3.2, s.sw * 0.85), seed + k, boil);
+      else if (s.fill && !s.closed) crayonLine(s.pts, pLine, s.fill, Math.max(3.2, s.sw * 0.85), seed + k, boil);
+    });
+    L.restore();
+  }
+
   function drawScene(i, local, dur, boil) {
-    const { v, shapes, seed } = items[i];
+    const { v, shapes, seed, withSubject } = items[i];
     const ox = i * PAGE_STEP;
     L.save(); L.translate(ox, 0);
     const head = v.heading && v.kind !== 'quote' ? v.heading : null;
-    if (v.kind === 'drawing') {
+    if (v.kind === 'photo') {
+      if (head) crayonText(head, W / 2, 1130, 88, LINE, clamp((local - 0.4) / 0.8), seed, boil);
+      // crayon scribble frame around the taped photo
+      const fr = []; for (let k = 0; k <= 60; k++) { const a = (k / 60) * Math.PI * 2; fr.push([W / 2 + Math.cos(a) * 470 + Math.sin(k) * 6, 720 + Math.sin(a) * 420]); }
+      crayonLine(fr, E.inOutCubic(inv(0.5, 1.4, local)), ACC, 8, seed, boil);
+    } else if (withSubject) {
+      drawShapes(shapes, local, dur * 0.6, seed, boil, W / 2 - 220, 230, 1.1);
+      const txt = v.kind === 'quote' ? `“${v.heading || ''}”` : (v.heading || '');
+      const size = txt.length > 30 ? 92 : 120;
+      wrap(txt, size, 900).forEach((ln, k) => crayonText(ln, W / 2, 860 + k * size * 1.05, size, k === 0 ? ACC : LINE, clamp((local - 0.6) * 14 / ln.length), seed + k, boil));
+    } else if (v.kind === 'drawing') {
       if (head) crayonText(head, W / 2, 300, 92, LINE, clamp(local / 0.9), seed, boil);
       L.save(); L.translate(W / 2 - 380, 330); L.scale(1.9, 1.9);
       const n = shapes.length, per = Math.min(0.55, (dur * 0.6) / Math.max(1, n));
@@ -142,7 +186,9 @@
       L.restore();
     } else if (v.kind === 'stat') {
       const target = Number(v.value) || 0, p = E.outExpo(inv(0.2, 1.6, local));
-      crayonText(`${v.prefix || ''}${FS.fmtNum(target * p, target)}${v.suffix || ''}`, W / 2, 760, 300, ACC, 1, seed, boil);
+      const full = `${v.prefix || ''}${FS.fmtNum(target, target)}${v.suffix || ''}`;
+      const size = Math.min(300, Math.floor(1500 / Math.max(3, full.length)));      // always fits the page
+      crayonText(`${v.prefix || ''}${FS.fmtNum(target * p, target)}${v.suffix || ''}`, W / 2, 760, size, ACC, 1, seed, boil);
       wrap(v.label || '', 84, 860).forEach((ln, k) => crayonText(ln, W / 2, 920 + k * 92, 84, LINE, clamp((local - 0.8) / 0.8), seed + k, boil));
       // a scribbled circle around the number
       const ring = []; for (let k = 0; k <= 80; k++) { const a = -0.6 + (k / 80) * Math.PI * 2.15; ring.push([W / 2 + Math.cos(a) * 390, 660 + Math.sin(a) * 210]); }
@@ -216,7 +262,8 @@
   }
 
   window.DUR = S.duration;
-  window.__ready = document.fonts.ready.then(() => Promise.all(['700 40px Gaegu', '400 40px "Patrick Hand"'].map(f => document.fonts.load(f))));
+  const photoLoads = Object.values(photos);
+  window.__ready = document.fonts.ready.then(() => Promise.all([...['700 40px Gaegu', '400 40px "Patrick Hand"'].map(f => document.fonts.load(f)), ...photoLoads]));
   window.render = t => {
     const boil = Math.floor(t * 12);
     // camera: hold on the current scene, truck to the next across the transition
@@ -237,6 +284,7 @@
       const sc = scenes[k], local = t - sc.start;
       if (local < -0.2) continue;
       washBlob(k * PAGE_STEP + W / 2, 700, 430, items[k].wash, E.outCubic(inv(0.3, 1.6, local)), k + 3);
+      if (items[k].v.kind === 'photo') drawPhoto(k, Math.max(0, local));
       drawScene(k, Math.max(0, local), sc.end - sc.start, boil);
     }
     // tooth: wax only where the paper peaks are

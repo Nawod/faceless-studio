@@ -89,7 +89,8 @@
   }
   function fmtNum(v, target) {
     const dec = Math.abs(target) < 10 && target % 1 !== 0 ? 1 : 0;
-    return Number(v).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    const yearish = Number.isInteger(target) && target >= 1000 && target <= 2100;
+    return Number(v).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: !yearish });
   }
 
   // ---------- 3D wireframe (used by blueprint3d and kinetic) ----------

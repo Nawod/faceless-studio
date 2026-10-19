@@ -12,7 +12,6 @@
   "niche": {
     "primary": "Real, verified facts that feel like glitches in Earth's code: bizarre animals and nature, physics and space anomalies, the human body, strange places, history's weird coincidences, and everyday things that make no sense until explained. Frame each topic as a 'bug' in reality, then explain the real science behind it.",
     "avoid": [
-      "medical or financial advice",
       "partisan politics and elections",
       "tragedies, violence, crime involving real victims",
       "content about minors",
@@ -87,9 +86,15 @@
   },
   "schedule": {
     "enabled": true,
-    "runAtLocal": "06:30",
-    "publishAtUTC": "18:00",
-    "timezoneNote": "18:00 UTC = 7pm UK (BST: 7pm, GMT: 6pm) and 2pm New York (EDT) — a strong overlap slot for US+UK.",
+    "runAtLocal": "21:15",
+    "videosPerDay": 3,
+    "publishSlotsUTC": [
+      "13:00",
+      "18:00",
+      "22:00"
+    ],
+    "publishAtUTC": "13:00",
+    "timezoneNote": "13:00 UTC = 9am New York / 2pm UK; 18:00 UTC = 2pm New York / 7pm UK; 22:00 UTC = 6pm New York / 11pm UK (EDT/BST). Each video takes the next free slot.",
     "leadDays": 0
   },
   "youtube": {

@@ -69,6 +69,22 @@ This registers two tasks: a daily run at `runAtLocal` (06:30 by default) that ca
 
 The free tier (512 MB RAM, 0.1 CPU, sleeps after 15 minutes idle, no cron) **can't render video**. Headless Chrome plus ffmpeg needs about 2 GB and real CPU. Keep the worker on this PC. Render would only make sense for a read-only status page, so it isn't set up. For true 24/7 operation, use a ~$20–40/month VPS (4 vCPU / 8 GB) with this same code.
 
+## Daily quota and publish slots
+
+`config/channel.json → schedule` (also editable in the dashboard settings):
+
+- `runAtLocal` (06:30): when the day's production starts.
+- `videosPerDay` (3): the app keeps making videos one after another until today's quota is met. It retries failures (up to 3 extra attempts a day) and makes a replacement when QA holds one back.
+- `publishSlotsUTC` (13:00, 18:00, 22:00 UTC, which is 9am / 2pm / 6pm New York and 2pm / 7pm / 11pm UK): each upload takes the next free slot, so videos never pile onto one time.
+
+The quota runs by itself while the dashboard is open (`npm start`), or from Windows Task Scheduler (`scripts/install-task.ps1`) even if the dashboard is closed.
+
+## Visual relevance checks
+
+Every plan names its **subject** (with a stock-photo search and a drawing), and every scene has a photo search for what it shows. A validator sends plans back to Claude when scenes don't picture their narration, when crayon has too few drawings, or when drawings are too simple. Claude's QA then reviews a still of every scene for relevance and layout and fixes failing scenes, for up to 2 rounds. A video still scoring below 5/10 is **held**, not uploaded, and the quota makes a replacement.
+
+Tools: `node src/tools/fix-visuals.js <runId>` re-plans and re-renders an existing run's visuals. `node src/tools/respread.js [--apply]` spreads already-scheduled uploads across free slots.
+
 ## If a run stops halfway
 
 Every stage is saved as it finishes. If the app or PC stops mid-run, the dashboard marks that run **interrupted** the next time it starts:

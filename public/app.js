@@ -48,6 +48,7 @@ async function act(id, a) {
 const actionsFor = (r, running) => {
   if (running) return [];
   if (['interrupted', 'failed', 'cancelled'].includes(r.status)) return [['resume', 'Resume', 'primary'], ['restart', 'Start over', '']];
+  if (r.status === 'held' && !r.youtube_id) return [['upload', 'Upload anyway', ''], ['restart', 'Start over', 'primary']];
   if (r.status === 'done' && !r.youtube_id) return [['upload', 'Upload & schedule', '']];
   return [];
 };
@@ -61,8 +62,8 @@ async function refresh() {
   $('#runNow').disabled = !!s.running;
   $('#nextRun').textContent = fmt(s.nextRun);
   $('#nextPub').textContent = fmt(s.nextPublish);
-  $('#totals').textContent = `${s.totals.done || 0} made`;
-  $('#totalsSub').textContent = `${s.totals.uploaded || 0} uploaded · ${s.totals.failed || 0} failed`;
+  $('#totals').textContent = `${s.today.made} / ${s.today.target} today`;
+  $('#totalsSub').textContent = `${s.totals.done || 0} made in total · ${s.totals.uploaded || 0} uploaded`;
   $('#topicCount').textContent = `${s.recentTopics} topics in the 90-day no-repeat list`;
   const c = s.checks, items = [
     [c.claude && c.claudeToken, 'Claude login', c.claudeToken ? 'found (run <code>npm run doctor</code> to test it)' : 'run <code>claude</code>, type <code>/login</code>, choose your Claude subscription'],
@@ -123,14 +124,20 @@ async function loadSettings() {
   const f = $('#settings');
   f.channelName.value = cfg.channelName; f.audience.value = cfg.audience; f.niche.value = cfg.niche.primary;
   f.avoid.value = cfg.niche.avoid.join('\n'); f.trendWeight.value = cfg.niche.trendWeight; f.targetSeconds.value = cfg.video.targetSeconds;
-  f.runAtLocal.value = cfg.schedule.runAtLocal; f.publishAtUTC.value = cfg.schedule.publishAtUTC; f.autoUpload.checked = cfg.youtube.autoUpload;
+  f.runAtLocal.value = cfg.schedule.runAtLocal; f.autoUpload.checked = cfg.youtube.autoUpload;
+  f.videosPerDay.value = cfg.schedule.videosPerDay || 1;
+  f.publishSlotsUTC.value = (cfg.schedule.publishSlotsUTC || [cfg.schedule.publishAtUTC]).join(', ');
   $('#styleToggles').innerHTML = Object.entries(cfg.styles).map(([k, v]) => `<label class="toggle"><input type="checkbox" data-style="${k}" ${v.enabled ? 'checked' : ''}> ${k}</label>`).join('');
 }
 $('#settings').onsubmit = async e => {
   e.preventDefault(); const f = e.target;
   cfg.channelName = f.channelName.value; cfg.audience = f.audience.value; cfg.niche.primary = f.niche.value;
   cfg.niche.avoid = f.avoid.value.split('\n').map(s => s.trim()).filter(Boolean); cfg.niche.trendWeight = +f.trendWeight.value;
-  cfg.video.targetSeconds = Math.max(61, +f.targetSeconds.value); cfg.schedule.runAtLocal = f.runAtLocal.value; cfg.schedule.publishAtUTC = f.publishAtUTC.value;
+  cfg.video.targetSeconds = Math.max(61, +f.targetSeconds.value); cfg.schedule.runAtLocal = f.runAtLocal.value;
+  const slots = f.publishSlotsUTC.value.split(/[,\s]+/).filter(x => /^\d{1,2}:\d{2}$/.test(x)).map(x => x.padStart(5, '0'));
+  if (!slots.length) return alert('Enter at least one publish slot, e.g. 13:00, 18:00, 22:00');
+  cfg.schedule.publishSlotsUTC = slots; cfg.schedule.publishAtUTC = slots[0];
+  cfg.schedule.videosPerDay = Math.min(6, Math.max(1, +f.videosPerDay.value || 1));
   cfg.youtube.autoUpload = f.autoUpload.checked;
   document.querySelectorAll('[data-style]').forEach(i => { cfg.styles[i.dataset.style].enabled = i.checked; });
   if (!Object.values(cfg.styles).some(s => s.enabled)) return alert('Enable at least one style');

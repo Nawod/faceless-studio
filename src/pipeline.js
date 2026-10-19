@@ -12,7 +12,7 @@ import { fetchMedia } from './assets.js';
 import { composeSpec, writeComp, sfxEvents } from './compose.js';
 import { reviewStills } from './qa.js';
 import { renderVideo, mux } from './render.js';
-import { uploadVideo, nextSlot, isConnected } from './youtube.js';
+import { uploadVideo, nextFreeSlot, isConnected } from './youtube.js';
 
 const VOICE_DELAY = 0.15, TAIL = 2.2;   // tail leaves room for the brand end card
 
@@ -70,7 +70,7 @@ function takeLock(runId) {
 }
 const releaseLock = runId => { clearInterval(heartbeat); heartbeat = null; const l = kvGet('lock'); if (l?.runId === runId) kvSet('lock', null); };
 
-export async function runPipeline({ runId = newRunId(), upload, planFile, style, onStage } = {}) {
+export async function runPipeline({ runId = newRunId(), upload, planFile, style, onStage, forceUpload = false } = {}) {
   const cfg = channel();
   const dir = path.join(RUNS, runId);
   fs.mkdirSync(dir, { recursive: true });
@@ -143,17 +143,27 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
     await stage('qa', async () => {
       setProgress({ detail: 'Rendering one still per scene and asking Claude to review them' });
       let { spec, html } = build();
-      const r = await reviewStills(html, spec, st.plan, dir, log);
-      st.qa = { score: r.score, pass: r.pass, issues: r.issues };
-      if (!r.pass && r.patches?.length) {
+      let r = await reviewStills(html, spec, st.plan, dir, log);
+      st.qa = { score: r.score, pass: r.pass, issues: r.issues, rounds: 0 };
+      // Up to two fix rounds: apply Claude's replacement visuals, fetch any new photos, review again.
+      for (let round = 1; round <= 2 && !r.pass && r.patches?.length; round++) {
         for (const p of r.patches) {
           const s = st.plan.scenes[p.scene - 1];
-          if (s && p.visual?.kind) s.visual = { ...p.visual, broll: s.visual.broll, img: s.visual.img, video: s.visual.video };
+          if (!s || !p.visual?.kind) continue;
+          const newBroll = p.visual.broll && p.visual.broll !== s.visual.broll;
+          s.visual = { ...p.visual, broll: p.visual.broll || s.visual.broll, img: newBroll ? undefined : s.visual.img, video: newBroll ? undefined : s.visual.video };
         }
+        setProgress({ detail: `Fixing ${r.patches.length} scene(s) flagged by QA (round ${round})` });
+        const more = await fetchMedia(st.plan, dir, log);
+        st.credits = [...new Set([...(st.credits || []), ...more])];
         fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(st.plan, null, 2));
         ({ spec, html } = build());
-        const r2 = await reviewStills(html, spec, st.plan, dir, log);
-        st.qa.after = { score: r2.score, pass: r2.pass, issues: r2.issues };
+        r = await reviewStills(html, spec, st.plan, dir, log);
+        st.qa = { score: r.score, pass: r.pass, issues: r.issues, rounds: round };
+      }
+      if (!r.skipped && r.score != null && r.score < 5) {
+        st.held = `QA score ${r.score}/10 after fixes: ${(r.issues || []).slice(0, 3).map(x => `#${x.scene} ${x.problem}`).join('; ')}`;
+        log.warn(`video held back from upload — ${st.held}`);
       }
     });
 
@@ -176,10 +186,11 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
 
     await stage('upload', async () => {
       if (!upload) { log.info('upload disabled for this run — video ready in the dashboard'); return; }
+      if (st.held && !forceUpload) { log.warn('not uploading: held for review (use "Upload & schedule" in the dashboard to publish it anyway)'); return; }
       if (!isConnected()) throw new Error('YouTube is not connected');
       setProgress({ detail: 'Uploading to YouTube and scheduling' });
       const p = st.plan;
-      const publishAt = nextSlot(cfg.schedule.publishAtUTC, cfg.schedule.leadDays);
+      const publishAt = nextFreeSlot(cfg.schedule);
       const src = (p.sources || []).filter(s => s.url).map(s => `• ${s.title || ''} ${s.url}`.trim()).slice(0, 6).join('\n');
       const description = [p.description.replace(/\s*Sources:[\s\S]*$/i, '').trim(), src ? `\nSources:\n${src}` : '', st.credits?.length ? `\nStock footage — ${st.credits.slice(0, 5).join(', ')}` : '', '\nVoice and animation are AI-assisted; facts checked against the sources above.'].join('\n');
       const tags = [...new Set([...(p.tags || []), ...cfg.youtube.defaultTags])].slice(0, 20);
@@ -190,7 +201,8 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
     });
 
     if (!st.recorded) { recordTopic(runId, st.plan); st.recorded = true; save(); }
-    updateRun(runId, { status: 'done', stage: 'done', meta: { qa: st.qa, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
+    const held = st.held && !st.youtube;
+    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
     log.info('✔ run complete');
     return getRun(runId);
   } catch (e) {
@@ -204,6 +216,19 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
 export function resetRun(runId) {
   fs.rmSync(path.join(RUNS, runId, 'state.json'), { force: true });
   updateRun(runId, { stage: null, topic: null, style: null, title: null, error: null });
+}
+
+/** Today's runs (local calendar day) and what the daily quota still needs. */
+export function todayStatus(cfg = channel()) {
+  const day = new Date().toDateString();
+  const runs = db.prepare('SELECT id, status, created_at FROM runs ORDER BY created_at').all().filter(r => new Date(r.created_at).toDateString() === day);
+  const target = Math.max(1, cfg.schedule.videosPerDay || 1);
+  const made = runs.filter(r => r.status === 'done').length;
+  return {
+    target, made, attempts: runs.length, runs,
+    interrupted: runs.find(r => r.status === 'interrupted') || null,
+    needMore: made < target && runs.length < target + 3,
+  };
 }
 
 export function todaysRun() {

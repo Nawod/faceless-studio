@@ -31,7 +31,7 @@ const STYLE_RULES = {
 
 const PLAN_SCHEMA = {
   type: 'object',
-  required: ['topic', 'angle', 'keywords', 'style', 'mood', 'title', 'description', 'tags', 'scenes', 'sources'],
+  required: ['topic', 'angle', 'keywords', 'style', 'mood', 'subject', 'title', 'description', 'tags', 'scenes', 'sources'],
   properties: {
     topic: { type: 'string' },
     angle: { type: 'string', description: 'the specific surprising hook/angle on the topic' },
@@ -40,6 +40,10 @@ const PLAN_SCHEMA = {
     styleReason: { type: 'string' },
     mood: { type: 'string', enum: ['curious', 'epic', 'playful', 'mysterious', 'calm', 'upbeat'] },
     accent: { type: 'string', description: 'optional accent colour hex that fits the topic' },
+    subject: {
+      type: 'object', required: ['name', 'broll', 'svg'],
+      properties: { name: { type: 'string' }, broll: { type: 'string' }, svg: { type: 'string', description: 'recognisable drawing of the subject, inner SVG for viewBox 0 0 400 400' } },
+    },
     title: { type: 'string' },
     description: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
@@ -101,6 +105,12 @@ ${styles.map(s => `   - ${s}: ${STYLE_RULES[s]} Best for: ${cfg.styles[s].bestFo
 5. VISUALS. For each scene choose a visual kind allowed by the style:
 ${Object.entries(VISUAL_KINDS).map(([k, v]) => `   - ${k}: ${v}`).join('\n')}
    On-screen headings must be short and add something (a number, a keyword) rather than repeat the narration. Vary kinds; don't repeat the same kind 3 times in a row.
+   SHOW, DON'T JUST TELL — the #1 reason viewers swipe away is visuals that don't match the words:
+   - Fill "subject": the main real-world thing the video is about (e.g. the animal, object, place). subject.broll = a 2-4 word stock search that returns photos of exactly it ("common wombat", not "Australia"). subject.svg = a recognisable drawing of it (rules below).
+   - The subject must be SEEN in scene 1 and in at least half of all scenes (as image, drawing or footage).
+   - Every scene needs "broll": a concrete stock search for what that scene's narration describes (2-4 words, real nouns). Every scene's visual must depict what is being said at that moment.
+   - Drawing styles (crayon, mascot): at least 60% of crayon scenes must be kind "drawing", each a different, recognisable picture of what that scene says. svg: 8-25 elements, bold simple shapes that fill most of the 400x400 canvas, outlines in a dark colour, real-world colours; a 6-year-old must recognise it without the heading.
+   - stat: prefix/suffix ≤ 6 characters each (use label for the rest). Never use stat for a year — use timeline or headline.
 6. METADATA. title: ≤ 70 chars, curiosity-driven but truthful, no ALL CAPS, no emoji spam. description: 2-3 sentences + 3-5 hashtags incl. #shorts + "Sources:" with the URLs. tags: 8-15.
    mood picks the background music feel.
 
@@ -125,7 +135,10 @@ export async function makePlan({ candidates, log, cwd }) {
     });
     const fresh = checkFresh(plan.topic, plan.angle, plan.keywords, cfg.variety.dedupDays, cfg.variety.similarityThreshold);
     if (!styles.includes(plan.style)) plan.style = styles[0];
-    if (fresh.ok) { log.info(`topic: "${plan.topic}" (${plan.style}); closest past match ${fresh.score.toFixed(2)}`); return normalise(plan); }
+    if (fresh.ok) {
+      log.info(`topic: "${plan.topic}" (${plan.style}); closest past match ${fresh.score.toFixed(2)}`);
+      return await enforceVisuals(normalise(plan), log, cwd);
+    }
     log.warn(`"${plan.topic}" too close to past "${fresh.match.topic}" (${fresh.score.toFixed(2)}); re-planning`);
     banned.push(plan.topic);
   }
@@ -141,8 +154,51 @@ export async function extendScript(plan, missingSeconds, log, cwd) {
   return normalise({ ...plan, ...out, style: plan.style });
 }
 
+const svgCount = svg => (String(svg || '').match(/<(path|circle|ellipse|rect|line|polygon|polyline)\b/gi) || []).length;
+const isYear = v => v.kind === 'stat' && Number.isInteger(+v.value) && +v.value >= 1000 && +v.value <= 2100 && !v.suffix && !v.prefix;
+
+/** Code-level checks that the visuals will actually show the story. Returns human-readable problems. */
+export function visualProblems(plan) {
+  const p = [], n = plan.scenes.length, kinds = plan.scenes.map(s => s.visual?.kind);
+  if (!plan.subject?.broll) p.push('subject.broll is missing');
+  if (svgCount(plan.subject?.svg) < 6) p.push('subject.svg is too simple (needs 8-25 shapes) or missing');
+  plan.scenes.forEach((s, i) => {
+    const v = s.visual || {};
+    if (!v.broll) p.push(`scene ${i + 1}: add a broll search for what it shows`);
+    if (v.kind === 'drawing' && svgCount(v.svg) < 6) p.push(`scene ${i + 1}: drawing has only ${svgCount(v.svg)} shapes — draw a recognisable picture (8-25 shapes)`);
+    if (v.kind === 'stat' && ((v.prefix || '').length > 6 || (v.suffix || '').length > 6)) p.push(`scene ${i + 1}: stat prefix/suffix too long — move words to label`);
+  });
+  if (plan.style === 'crayon') {
+    const d = kinds.filter(k => k === 'drawing').length;
+    if (d < Math.ceil(n * 0.6)) p.push(`crayon style needs drawings in at least ${Math.ceil(n * 0.6)} of ${n} scenes (has ${d}) — each picturing what that scene says`);
+    if (kinds[0] !== 'drawing' && kinds[0] !== 'image') p.push('scene 1 must show the subject (drawing or image)');
+  }
+  if (plan.style === 'globe3d' && kinds.filter(k => k === 'map').length < Math.ceil(n * 0.4)) p.push('globe3d needs map scenes in at least 40% of scenes');
+  if (plan.style === 'blueprint3d' && kinds.filter(k => k === 'model3d').length < Math.ceil(n * 0.4)) p.push('blueprint3d needs model3d in at least 40% of scenes');
+  return p;
+}
+
+export const enforceVisualsForRun = (plan, log, cwd) => enforceVisuals(plan, log, cwd);
+
+async function enforceVisuals(plan, log, cwd) {
+  for (let round = 0; round < 2; round++) {
+    const problems = visualProblems(plan);
+    if (!problems.length) return plan;
+    log.warn(`visual plan needs fixes: ${problems.join('; ')}`);
+    const out = await askClaude(`Fix the visuals of this YouTube Shorts plan. Keep topic, narration, facts, style and metadata exactly the same; change only "subject" and each scene's "visual" so every scene clearly shows what its narration says.\nProblems to fix:\n- ${problems.join('\n- ')}\n\nRules: subject = the main real thing (broll: exact stock search; svg: recognisable 8-25 shape drawing filling the 400x400 canvas). Every scene has a concrete broll. In crayon style most scenes are "drawing" with a different picture each. Return the full plan JSON.\n\n${JSON.stringify(plan)}`, {
+      schema: PLAN_SCHEMA, maxTurns: 6, cwd, log, timeoutMs: 10 * 60_000,
+    });
+    plan = normalise({ ...plan, subject: out.subject || plan.subject, scenes: plan.scenes.map((s, i) => ({ ...s, visual: out.scenes?.[i]?.visual || s.visual })) });
+  }
+  const left = visualProblems(plan);
+  if (left.length) log.warn(`visual plan still has issues after revision: ${left.join('; ')}`);
+  return plan;
+}
+
 function normalise(plan) {
   plan.scenes = plan.scenes.filter(s => s.narration?.trim()).map(s => ({ ...s, narration: s.narration.trim(), visual: s.visual || { kind: 'headline' } }));
+  // years read as "2,019" in a counter: show them as a headline instead
+  for (const s of plan.scenes) if (isYear(s.visual)) s.visual = { ...s.visual, kind: 'headline', heading: `${s.visual.value}${s.visual.label ? ' · ' + s.visual.label : ''}` };
   plan.tags = [...new Set((plan.tags || []).map(t => t.replace(/^#/, '').trim()).filter(Boolean))].slice(0, 15);
   if (plan.title.length > 95) plan.title = plan.title.slice(0, 92) + '…';
   return plan;

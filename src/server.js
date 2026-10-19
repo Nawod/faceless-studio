@@ -5,8 +5,8 @@ import path from 'node:path';
 import express from 'express';
 import { channel, saveChannel, env, ROOT, RUNS, bins } from './config.js';
 import { db, getRun, kvGet, kvSet } from './db.js';
-import { runPipeline, todaysRun, newRunId, reconcileStaleRuns, lockOwnerAlive, STAGES, getProgress, requestCancel, resetRun } from './pipeline.js';
-import { authUrl, exchangeCode, isConnected, channelInfo, nextSlot } from './youtube.js';
+import { runPipeline, todayStatus, newRunId, reconcileStaleRuns, lockOwnerAlive, STAGES, getProgress, requestCancel, resetRun } from './pipeline.js';
+import { authUrl, exchangeCode, isConnected, channelInfo, nextFreeSlot } from './youtube.js';
 import { recentTopics } from './dedup.js';
 
 const app = express();
@@ -44,7 +44,7 @@ function start(opts = {}) {
 function nextRunLocal() {
   const [h, m] = channel().schedule.runAtLocal.split(':').map(Number);
   const d = new Date(); d.setHours(h, m, 0, 0);
-  if (d < new Date() || todaysRun()) d.setDate(d.getDate() + 1);
+  if (d < new Date()) { if (todayStatus().needMore) return new Date().toISOString(); d.setDate(d.getDate() + 1); }
   return d.toISOString();
 }
 
@@ -57,7 +57,7 @@ app.get('/api/status', async (req, res) => {
   res.json({
     running: runId ? { runId, stage: r?.stage || current?.stage, title: r?.title, topic: r?.topic, style: r?.style, external: !current, progress: prog?.runId === runId ? prog : null, cancelling: kvGet('cancel') === runId } : null,
     stages: STAGES,
-    nextRun: nextRunLocal(), nextPublish: nextSlot(cfg.schedule.publishAtUTC, cfg.schedule.leadDays),
+    nextRun: nextRunLocal(), nextPublish: nextFreeSlot(cfg.schedule), today: (({ target, made, attempts }) => ({ target, made, attempts }))(todayStatus(cfg)),
     youtube: { connected: isConnected(), channel: kvGet('youtube_channel'), configured: !!(env('YOUTUBE_CLIENT_ID') && env('YOUTUBE_CLIENT_SECRET')) },
     checks: {
       claude: !!bins.claude, claudeToken: claudeAuthPresent(), chrome: !!bins.chrome,
@@ -108,11 +108,11 @@ app.post('/api/runs/:id/cancel', (req, res) => {
 });
 app.post('/api/runs/:id/upload', (req, res) => {
   const r = getRun(req.params.id);
-  if (!r || r.status !== 'done' || r.youtube_id) return res.status(400).json({ error: 'nothing to upload' });
+  if (!r || !['done', 'held'].includes(r.status) || r.youtube_id) return res.status(400).json({ error: 'nothing to upload' });
   // re-open the run with the upload stage cleared
   const sf = path.join(RUNS, r.id, 'state.json'), st = JSON.parse(fs.readFileSync(sf, 'utf8'));
   st.done = st.done.filter(s => s !== 'upload'); fs.writeFileSync(sf, JSON.stringify(st));
-  try { res.json({ runId: start({ runId: r.id, upload: true }) }); } catch (e) { res.status(409).json({ error: e.message }); }
+  try { res.json({ runId: start({ runId: r.id, upload: true, forceUpload: true }) }); } catch (e) { res.status(409).json({ error: e.message }); }
 });
 app.get('/api/config', (req, res) => res.json(channel()));
 app.put('/api/config', (req, res) => {
@@ -142,14 +142,15 @@ setInterval(() => {
   const [h, m] = channel().schedule.runAtLocal.split(':').map(Number);
   const nowD = new Date();
   if (nowD.getHours() * 60 + nowD.getMinutes() < h * 60 + m) return;
-  const today = todaysRun();
-  if (!today) {
-    console.log('scheduler: starting today\'s run');
+  const t = todayStatus();
+  if (t.interrupted) {
+    // The PC or app stopped mid-run: pick it up again automatically (at most twice per run).
+    const k = `autoresume:${t.interrupted.id}`, n = kvGet(k, 0);
+    if (n < 2) { kvSet(k, n + 1); console.log(`scheduler: resuming interrupted run ${t.interrupted.id}`); try { start({ runId: t.interrupted.id }); } catch (e) { console.error(e.message); } return; }
+  }
+  if (t.needMore) {
+    console.log(`scheduler: making video ${t.made + 1} of ${t.target} for today`);
     try { start({}); } catch (e) { console.error(e.message); }
-  } else if (today.status === 'interrupted') {
-    // The PC or app stopped mid-run: pick it up again automatically (at most twice a day).
-    const k = `autoresume:${today.id}`, n = kvGet(k, 0);
-    if (n < 2) { kvSet(k, n + 1); console.log(`scheduler: resuming interrupted run ${today.id}`); try { start({ runId: today.id }); } catch (e) { console.error(e.message); } }
   }
 }, 60_000);
 

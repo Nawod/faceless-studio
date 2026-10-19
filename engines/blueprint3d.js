@@ -65,6 +65,22 @@
   // map any part colour into the blueprint palette (keep hue, force light)
   function mix(hex) { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return `rgb(${Math.round(lerp(r, 191, 0.6))},${Math.round(lerp(g, 244, 0.6))},${Math.round(lerp(b, 255, 0.6))})`; }
 
+  // real photos (image scenes) shown as a cyan duotone print in a blueprint frame
+  const photos = {}, photoLoads = [];
+  scenes.forEach((sc, i) => { if (sc.visual?.kind === 'image' && sc.visual.img) photoLoads.push(FS.loadImage(sc.visual.img).then(img => { photos[i] = img; })); });
+  function photo(i, local) {
+    const img = photos[i]; if (!img) return false;
+    const x = 120, y = 400, w = 840, h = 700, p = E.outCubic(inv(0, 0.6, local));
+    ctx.save(); ctx.globalAlpha = p; ctx.beginPath(); ctx.rect(x, y + (1 - p) * 40, w, h); ctx.clip();
+    const s = Math.max(w / img.width, h / img.height);
+    ctx.filter = 'grayscale(1) contrast(1.25) brightness(1.05)'; ctx.drawImage(img, x + (w - img.width * s) / 2, y + (h - img.height * s) / 2, img.width * s, img.height * s); ctx.filter = 'none';
+    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#2f8fd8'; ctx.fillRect(x, y, w, h);
+    ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = 'rgba(127,231,255,0.18)'; ctx.lineWidth = 1;
+    for (let gx = x; gx < x + w; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx, y + h); ctx.stroke(); }
+    ctx.restore();
+    frameBox(x, y, w, h, E.outCubic(inv(0, 0.5, local)));
+    return true;
+  }
   const drawings = {};
   const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); host.setAttribute('viewBox', '0 0 400 400'); host.style.cssText = 'position:absolute;left:-9999px;width:400px;height:400px'; document.body.appendChild(host);
   scenes.forEach((sc, i) => { if (sc.visual?.kind === 'drawing' && sc.visual.svg) { host.innerHTML = sc.visual.svg; drawings[i] = [...host.querySelectorAll('path,circle,ellipse,rect,line,polygon,polyline')].map(e => { let L = 0; try { L = e.getTotalLength(); } catch {} const n = Math.max(6, Math.ceil(L / 4)); return L ? Array.from({ length: n + 1 }, (_, k) => { const p = e.getPointAtLength(k / n * L); return [p.x, p.y]; }) : null; }).filter(Boolean); } });
@@ -109,6 +125,7 @@
           ctx.save(); ctx.globalAlpha = clamp(p); ctx.font = '130px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e, x, y + 6); ctx.restore(); });
         break;
       }
+      case 'image': if (photo(i, local)) break; // no photo: fall through and draw the scene's svg, if any
       case 'drawing': {
         const shapes = drawings[i] || [];
         glow(true); ctx.strokeStyle = CY; ctx.lineWidth = 3.2; ctx.lineJoin = ctx.lineCap = 'round';
@@ -150,7 +167,7 @@
   }
 
   window.DUR = S.duration;
-  window.__ready = document.fonts.ready.then(() => document.fonts.load(`700 40px ${MONO}`));
+  window.__ready = document.fonts.ready.then(() => Promise.all([document.fonts.load(`700 40px ${MONO}`), ...photoLoads]));
   window.render = t => {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bg, 0, 0); grid(t);
     const { i } = FS.sceneAt(t), s = scenes[i];
