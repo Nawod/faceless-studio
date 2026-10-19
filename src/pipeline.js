@@ -5,7 +5,7 @@ import { channel, RUNS } from './config.js';
 import { db, now, updateRun, getRun, kvGet, kvSet } from './db.js';
 import { makeLogger } from './log.js';
 import { discover } from './discover.js';
-import { makePlan, extendScript } from './planner.js';
+import { makePlan, extendScript, repairDrawings } from './planner.js';
 import { recordTopic, checkFresh } from './dedup.js';
 import { pickVoice, narrate, sceneTimings, makeMusicAndSfx, mixAudio } from './audio.js';
 import { fetchMedia } from './assets.js';
@@ -154,6 +154,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
           s.visual = { ...p.visual, broll: p.visual.broll || s.visual.broll, img: newBroll ? undefined : s.visual.img, video: newBroll ? undefined : s.visual.video };
         }
         setProgress({ detail: `Fixing ${r.patches.length} scene(s) flagged by QA (round ${round})` });
+        await repairDrawings(st.plan, log, dir);
         const more = await fetchMedia(st.plan, dir, log);
         st.credits = [...new Set([...(st.credits || []), ...more])];
         fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(st.plan, null, 2));

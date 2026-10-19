@@ -133,7 +133,7 @@
   function drawPhoto(i, local) {
     const img = photos[i]; if (!img || !img.width) return;
     const p = E.outBack(inv(0.05, 0.5, local), 1.6);
-    const w = 760, h = 640, x = i * PAGE_STEP + W / 2, y = 700;
+    const w = 760, h = 620, x = i * PAGE_STEP + W / 2, y = 640;
     ctx.save(); ctx.translate(x, y); ctx.rotate(-0.04 + (1 - p) * 0.2); ctx.scale(p, p);
     ctx.fillStyle = '#fffdf6'; ctx.shadowColor = 'rgba(60,40,10,0.25)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
     ctx.fillRect(-w / 2 - 22, -h / 2 - 22, w + 44, h + 90); ctx.shadowColor = 'transparent';
@@ -163,9 +163,9 @@
     L.save(); L.translate(ox, 0);
     const head = v.heading && v.kind !== 'quote' ? v.heading : null;
     if (v.kind === 'photo') {
-      if (head) crayonText(head, W / 2, 1130, 88, LINE, clamp((local - 0.4) / 0.8), seed, boil);
-      // crayon scribble frame around the taped photo
-      const fr = []; for (let k = 0; k <= 60; k++) { const a = (k / 60) * Math.PI * 2; fr.push([W / 2 + Math.cos(a) * 470 + Math.sin(k) * 6, 720 + Math.sin(a) * 420]); }
+      if (head) crayonText(head, W / 2, 1170, 84, LINE, clamp((local - 0.4) / 0.8), seed, boil);
+      // crayon scribble frame around the taped photo (stays above the heading)
+      const fr = []; for (let k = 0; k <= 60; k++) { const a = (k / 60) * Math.PI * 2; fr.push([W / 2 + Math.cos(a) * 505 + Math.sin(k) * 6, 660 + Math.sin(a) * 425]); }
       crayonLine(fr, E.inOutCubic(inv(0.5, 1.4, local)), ACC, 8, seed, boil);
     } else if (withSubject) {
       drawShapes(shapes, local, dur * 0.6, seed, boil, W / 2 - 220, 230, 1.1);
@@ -236,7 +236,7 @@
   }
 
   // ---------- captions (the book's printed words) ----------
-  const chunks = buildChunks(S.words, 4, 26);
+  const chunks = buildChunks(S.words, 3, 19);
   function captions(t, boil) {
     const hit = chunkAt(chunks, t); if (!hit) return;
     const ws = hit.c.idx.map(j => S.words[j]);

@@ -23,7 +23,8 @@ function withSubject(v = {}, subject, style) {
   if (FOOTAGE.includes(style) && !v.img && !v.video && subject.img) return { ...v, img: subject.img };
   if (v.kind === 'image' && !v.img && !v.video && subject.img) return { ...v, img: subject.img };
   if (v.kind === 'image' && !v.img && !v.video && !subject.img && subject.svg) return { ...v, kind: 'drawing', svg: subject.svg };
-  if (v.kind === 'drawing' && !(v.svg || '').trim() && subject.svg) return { ...v, svg: subject.svg };
+  const shapes = (String(v.svg || '').match(/<(path|circle|ellipse|rect|line|polygon|polyline)\b/gi) || []).length;
+  if (v.kind === 'drawing' && shapes < 3 && subject.svg) return { ...v, svg: subject.svg };   // never an empty page
   return v;
 }
 

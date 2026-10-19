@@ -179,6 +179,32 @@ export function visualProblems(plan) {
 }
 
 export const enforceVisualsForRun = (plan, log, cwd) => enforceVisuals(plan, log, cwd);
+export { svgCount };
+
+/** Turn a description (or a too-simple svg) into a real drawing. Returns inner SVG markup. */
+export async function drawSvg(what, { log, cwd, palette } = {}) {
+  const out = await askClaude(`Draw this as a simple, bold, child-recognisable illustration: "${what}".
+Return inner SVG markup for viewBox="0 0 400 400" (no <svg> wrapper, no <text>, no gradients, no <g> transforms): 10-25 elements using only path, circle, ellipse, rect, line, polygon, polyline. Every element has fill (real-world colours${palette ? `, e.g. ${palette}` : ''}) and a dark stroke (#3B2A4A) with stroke-width 5-8. Shapes fill most of the canvas; the main object is centred and large.`, {
+    schema: { type: 'object', required: ['svg'], properties: { svg: { type: 'string' } } }, model: 'sonnet', maxTurns: 2, cwd, log, timeoutMs: 4 * 60_000,
+  });
+  const svg = String(out.svg || '').replace(/<\/?svg[^>]*>/g, '').replace(/<text[\s\S]*?<\/text>/g, '');
+  return svgCount(svg) >= 4 ? svg : null;
+}
+
+/** Any drawing visual whose svg isn't real markup gets drawn properly (or falls back to the subject drawing). */
+export async function repairDrawings(plan, log, cwd) {
+  for (const [i, s] of plan.scenes.entries()) {
+    const v = s.visual || {};
+    if (v.kind !== 'drawing' || svgCount(v.svg) >= 6) continue;
+    const what = (v.svg && svgCount(v.svg) === 0 ? v.svg : '') || v.heading || s.narration;
+    try {
+      const svg = await drawSvg(`${what} (for a video about ${plan.subject?.name || plan.topic})`, { log, cwd });
+      if (svg) { v.svg = svg; log.info(`scene ${i + 1}: drew a new picture`); continue; }
+    } catch (e) { log.warn(`scene ${i + 1}: drawing failed: ${e.message}`); }
+    if (plan.subject?.svg) v.svg = plan.subject.svg;
+  }
+  return plan;
+}
 
 async function enforceVisuals(plan, log, cwd) {
   for (let round = 0; round < 2; round++) {
@@ -190,6 +216,7 @@ async function enforceVisuals(plan, log, cwd) {
     });
     plan = normalise({ ...plan, subject: out.subject || plan.subject, scenes: plan.scenes.map((s, i) => ({ ...s, visual: out.scenes?.[i]?.visual || s.visual })) });
   }
+  await repairDrawings(plan, log, cwd);
   const left = visualProblems(plan);
   if (left.length) log.warn(`visual plan still has issues after revision: ${left.join('; ')}`);
   return plan;

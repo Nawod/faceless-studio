@@ -15,6 +15,7 @@ const st = JSON.parse(fs.readFileSync(sf, 'utf8'));
 const log = makeLogger(runId);
 const { enforce } = await import('../planner.js').then(m => ({ enforce: m.enforceVisualsForRun }));
 st.plan = await enforce(st.plan, log, dir);
+await (await import('../planner.js')).repairDrawings(st.plan, log, dir);
 // fetch all stock media again (with the relevance filter)
 for (const s of st.plan.scenes) { delete s.visual.img; delete s.visual.video; }
 if (st.plan.subject) delete st.plan.subject.img;
