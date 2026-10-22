@@ -15,7 +15,8 @@ const QA_SCHEMA = {
 };
 
 export function stillTimes(spec) {
-  return spec.scenes.map(s => +(s.start + Math.min(2.2, (s.end - s.start) * 0.6)).toFixed(2));
+  // never sample under the brand end card (last ~2 s)
+  return spec.scenes.map(s => +Math.min(Math.max(0.3, s.start + Math.min(2.2, (s.end - s.start) * 0.6)), spec.duration - 2.3).toFixed(2));
 }
 
 export async function reviewStills(html, spec, plan, dir, log) {
@@ -33,7 +34,7 @@ Scene narration:
 ${plan.scenes.map((s, i) => `${i + 1}. ${s.narration}`).join('\n')}
 Scene visuals as planned:
 ${plan.scenes.map((s, i) => `${i + 1}. [${s.visual.kind}] ${JSON.stringify({ ...s.visual, svg: s.visual.svg ? '(svg)' : undefined, img: undefined, video: undefined })}`).join('\n')}
-pass=false for any problem a viewer would notice, especially frames that don't show what is being said. For every failing scene return a patch: a replacement visual object (kind, heading, emphasis, value, prefix, suffix, label, items, left, right, svg, emoji, parts, places, broll). Prefer kind "image" (a real photo of the thing — set broll to an exact 2-4 word stock search) or, in drawing styles, kind "drawing" with a recognisable 8-25 shape svg of the thing being said. Return JSON.`;
+pass=false for any problem a viewer would notice, especially frames that don't show what is being said. For every failing scene return a patch: a replacement visual object (kind, heading, emphasis, value, prefix, suffix, label, items, left, right, svg, emoji, parts, places, broll). ${plan.style === 'crayon' || plan.drawn ? 'This video is hand-drawn (no stock photos exist for it): every patch MUST be kind "drawing" (recognisable 8-25 shape svg of what is being said, data-anim on moving parts, svg2 second pose for living things; numbers/words go in heading). Never use image.' : 'Prefer kind "image" (a real photo of the thing — set broll to an exact 2-4 word stock search) or, in drawing styles, kind "drawing" with a recognisable 8-25 shape svg of the thing being said.'} Return JSON.`;
   try {
     const r = await askClaude(prompt, { schema: QA_SCHEMA, model: env('CLAUDE_FAST_MODEL', 'sonnet'), tools: ['Read'], maxTurns: 8, cwd: dir, log, timeoutMs: 8 * 60_000 });
     log.info(`QA score ${r.score}/10, ${r.pass ? 'pass' : 'fail'}${r.issues?.length ? ': ' + r.issues.map(x => `#${x.scene} ${x.problem}`).join('; ') : ''}`);

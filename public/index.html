@@ -11,8 +11,8 @@
   <div class="brand"><span class="dot"></span><b>Faceless Studio</b><span class="muted" id="channelName"></span></div>
   <div class="actions">
     <label class="toggle"><input type="checkbox" id="uploadToggle" checked> upload</label>
-    <select id="styleSel" title="Force a style for this run">
-      <option value="">auto style</option><option>kinetic</option><option>collage</option><option>crayon</option><option>documentary</option><option>blueprint3d</option><option>mascot</option><option>globe3d</option><option>newsflash</option>
+    <select id="styleSel" title="Animation style for this video">
+      <option value="">Auto style</option>
     </select>
     <button id="runNow" class="primary">Make a video now</button>
   </div>
@@ -45,6 +45,17 @@
     <ul id="checks"></ul>
   </section>
 
+  <section class="card" id="stylesCard">
+    <div class="row wrap"><h2>Animation styles</h2>
+      <div class="seg" role="radiogroup" aria-label="How videos are animated">
+        <label><input type="radio" name="dirMode" value="bespoke"> Hand-animated by the director</label>
+        <label><input type="radio" name="dirMode" value="templates"> Fast templates</label>
+      </div>
+    </div>
+    <p class="muted" id="stylesHint"></p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
   <section class="card">
     <div class="row"><h2>Runs</h2><span class="muted" id="topicCount"></span></div>
     <table id="runs"><thead><tr><th>Date</th><th>Topic</th><th>Style</th><th>Length</th><th>Status</th><th>YouTube</th></tr></thead><tbody></tbody></table>
@@ -66,7 +77,7 @@
           <label>Videos per day <input name="videosPerDay" type="number" min="1" max="6"></label>
         </div>
         <label>Publish slots, UTC (each video takes the next free one) <input name="publishSlotsUTC" placeholder="13:00, 18:00, 22:00"></label>
-        <fieldset><legend>Styles</legend><div id="styleToggles"></div></fieldset>
+        <fieldset><legend>Fast template styles (also the fallback when a director film fails)</legend><div id="styleToggles"></div></fieldset>
         <label class="toggle"><input type="checkbox" name="autoUpload"> Upload & schedule automatically</label>
         <button class="primary" type="submit">Save settings</button> <span id="saved" class="muted"></span>
       </form>

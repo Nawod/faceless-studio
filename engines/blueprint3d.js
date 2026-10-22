@@ -24,15 +24,14 @@
     ctx.fillText(text.slice(0, n) + (p > 0 && p < 1 ? '▌' : ''), x, y);
   }
   function wrap(text, size, maxW) { ctx.font = `700 ${size}px ${MONO}`; const out = []; let cur = ''; for (const w of String(text).split(/\s+/)) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width > maxW && cur) { out.push(cur); cur = w; } else cur = t; } if (cur) out.push(cur); return out; }
+  // No boxes: a drafting dimension line under the content (drawn on left→right) with end ticks and a moving marker.
   function frameBox(x, y, w, h, p = 1, color = CY) {
-    ctx.strokeStyle = color; ctx.lineWidth = 3; const c = 26;
-    ctx.beginPath(); const per = 2 * (w + h), len = per * clamp(p);
-    // draw the rectangle progressively
-    const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]; let left = len;
-    ctx.moveTo(x, y);
-    for (let k = 1; k < pts.length && left > 0; k++) { const [ax, ay] = pts[k - 1], [bx, by] = pts[k], seg = Math.hypot(bx - ax, by - ay), f = Math.min(1, left / seg); ctx.lineTo(ax + (bx - ax) * f, ay + (by - ay) * f); left -= seg; }
-    ctx.stroke();
-    if (p >= 1) { ctx.lineWidth = 6; [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([cx, cy, sx, sy]) => { ctx.beginPath(); ctx.moveTo(cx, cy + sy * c); ctx.lineTo(cx, cy); ctx.lineTo(cx + sx * c, cy); ctx.stroke(); }); }
+    const yy = y + h, len = w * clamp(p);
+    ctx.strokeStyle = color; ctx.lineWidth = 3; glow(true);
+    ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + len, yy); ctx.stroke();
+    ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, yy - 14); ctx.lineTo(x, yy + 14); if (p >= 1) { ctx.moveTo(x + w, yy - 14); ctx.lineTo(x + w, yy + 14); } ctx.stroke();
+    if (p > 0 && p < 1) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x + len, yy, 6, 0, Math.PI * 2); ctx.fill(); }
+    glow(false);
   }
   function title(text, local) {
     const lines = wrap(String(text).toUpperCase(), 58, 820);
@@ -68,17 +67,20 @@
   // real photos (image scenes) shown as a cyan duotone print in a blueprint frame
   const photos = {}, photoLoads = [];
   scenes.forEach((sc, i) => { if (sc.visual?.kind === 'image' && sc.visual.img) photoLoads.push(FS.loadImage(sc.visual.img).then(img => { photos[i] = img; })); });
+  // full-screen cyan duotone print of the photo, scanned in top→bottom, slowly pushing in (no frame)
   function photo(i, local) {
     const img = photos[i]; if (!img) return false;
-    const x = 120, y = 400, w = 840, h = 700, p = E.outCubic(inv(0, 0.6, local));
-    ctx.save(); ctx.globalAlpha = p; ctx.beginPath(); ctx.rect(x, y + (1 - p) * 40, w, h); ctx.clip();
-    const s = Math.max(w / img.width, h / img.height);
-    ctx.filter = 'grayscale(1) contrast(1.25) brightness(1.05)'; ctx.drawImage(img, x + (w - img.width * s) / 2, y + (h - img.height * s) / 2, img.width * s, img.height * s); ctx.filter = 'none';
-    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#2f8fd8'; ctx.fillRect(x, y, w, h);
-    ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = 'rgba(127,231,255,0.18)'; ctx.lineWidth = 1;
-    for (let gx = x; gx < x + w; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx, y + h); ctx.stroke(); }
+    const scan = E.inOutCubic(inv(0, 0.7, local)), z = 1.05 + 0.06 * Math.min(1, local / 5);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H * scan); ctx.clip();
+    const s = Math.max(W / img.width, H / img.height) * z, iw = img.width * s, ih = img.height * s;
+    ctx.globalAlpha = 0.85;
+    ctx.filter = 'grayscale(1) contrast(1.3) brightness(1.05)'; ctx.drawImage(img, (W - iw) / 2, (H - ih) / 2, iw, ih); ctx.filter = 'none';
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#2f8fd8'; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+    const vg = ctx.createLinearGradient(0, 0, 0, H); vg.addColorStop(0, 'rgba(6,26,61,0.75)'); vg.addColorStop(0.3, 'rgba(6,26,61,0)'); vg.addColorStop(0.62, 'rgba(6,26,61,0)'); vg.addColorStop(0.75, 'rgba(6,26,61,0.85)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    frameBox(x, y, w, h, E.outCubic(inv(0, 0.5, local)));
+    if (scan < 1) { glow(true); ctx.strokeStyle = CY2; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, H * scan); ctx.lineTo(W, H * scan); ctx.stroke(); glow(false); }
+    grid(local);
     return true;
   }
   const drawings = {};
@@ -155,8 +157,8 @@
     const ws = hit.c.idx.map(j => S.words[j]), parts = ws.map(w => w.word.toUpperCase()), widths = parts.map(p => ctx.measureText(p).width);
     const gap = 26, total = widths.reduce((a, b) => a + b, 0) + gap * (parts.length - 1);
     const x0 = W / 2 - total / 2, y = 1320;
-    ctx.fillStyle = 'rgba(6,26,61,0.85)'; ctx.fillRect(x0 - 30, y - 56, total + 60, 112);
-    ctx.strokeStyle = CY; ctx.lineWidth = 3; ctx.strokeRect(x0 - 30, y - 56, total + 60, 112);
+    // no caption box: words float with a dark glow so they read on any background
+    ctx.shadowColor = 'rgba(2,10,28,0.95)'; ctx.shadowBlur = 22;
     let x = x0;
     ws.forEach((w, k) => {
       const on = t >= w.start - 0.03 && t < w.end + 0.08;
@@ -164,6 +166,7 @@
       ctx.fillStyle = on ? BG1 : '#fff'; ctx.fillText(parts[k], x, y + 4);
       x += widths[k] + gap;
     });
+    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
   }
 
   window.DUR = S.duration;

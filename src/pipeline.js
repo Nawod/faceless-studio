@@ -8,10 +8,11 @@ import { discover } from './discover.js';
 import { makePlan, extendScript, repairDrawings } from './planner.js';
 import { recordTopic, checkFresh } from './dedup.js';
 import { pickVoice, narrate, sceneTimings, makeMusicAndSfx, mixAudio } from './audio.js';
-import { fetchMedia } from './assets.js';
+import { fetchMedia, stockAvailability } from './assets.js';
 import { composeSpec, writeComp, sfxEvents } from './compose.js';
 import { reviewStills } from './qa.js';
 import { renderVideo, mux } from './render.js';
+import { directFilm } from './director.js';
 import { uploadVideo, nextFreeSlot, isConnected } from './youtube.js';
 
 const VOICE_DELAY = 0.15, TAIL = 2.2;   // tail leaves room for the brand end card
@@ -26,6 +27,7 @@ export const STAGES = [
   { id: 'discover', label: 'Find trends', weight: 3 },
   { id: 'plan', label: 'Research & script', weight: 24 },
   { id: 'voice', label: 'Voiceover', weight: 6 },
+  { id: 'direct', label: 'Animate', weight: 20 },
   { id: 'media', label: 'Footage', weight: 7 },
   { id: 'qa', label: 'Quality check', weight: 10 },
   { id: 'render', label: 'Render & mix', weight: 44 },
@@ -70,7 +72,7 @@ function takeLock(runId) {
 }
 const releaseLock = runId => { clearInterval(heartbeat); heartbeat = null; const l = kvGet('lock'); if (l?.runId === runId) kvSet('lock', null); };
 
-export async function runPipeline({ runId = newRunId(), upload, planFile, style, onStage, forceUpload = false } = {}) {
+export async function runPipeline({ runId = newRunId(), upload, planFile, style, language, onStage, forceUpload = false } = {}) {
   const cfg = channel();
   const dir = path.join(RUNS, runId);
   fs.mkdirSync(dir, { recursive: true });
@@ -93,6 +95,10 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
   takeLock(runId);
   if (cancelRequested(runId)) kvSet('cancel', null);
   kvSet('progress', { runId, done: [...st.done], startedAt: Date.now(), at: Date.now() });
+  // bespoke = an agent animator hand-builds every video (director mode); the template engines are the fallback
+  // a style picked in the dashboard decides: a director language forces director mode, a template style forces templates
+  if (language) st.language = language;
+  const bespoke = !style && (!!st.language || (cfg.direction?.mode || 'templates') === 'bespoke');
   try {
     await stage('discover', async () => { st.candidates = planFile ? [] : await discover(log); });
 
@@ -104,19 +110,37 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       } else {
         setProgress({ detail: 'Claude is choosing a topic and fact-checking it with web search — usually 3–8 min' });
         st.plan = await makePlan({ candidates: st.candidates, log, cwd: dir });
+        // Not enough real stock of the subject? Draw it instead of filling the video with wrong photos.
+        const avail = bespoke ? null : await stockAvailability(st.plan, log);
+        if (avail && !style) {
+          log.info(`stock for "${st.plan.subject?.name}": ${avail.photos} relevant photos, ${avail.videos} videos`);
+          const footage = ['documentary', 'newsflash'].includes(st.plan.style);
+          if (footage && avail.videos < 6) {
+            const to = new Date().getDate() % 2 ? 'crayon' : 'mascot';
+            log.warn(`too little footage for a ${st.plan.style} video — switching to hand-drawn ${to}`);
+            st.plan.style = to; st.plan.drawn = true;
+            st.plan.scenes.forEach(s => { if (s.visual?.kind === 'image' || to === 'crayon') s.visual = { ...s.visual, kind: s.visual.kind === 'image' ? 'drawing' : s.visual.kind, svg: '' }; });
+            setProgress({ detail: 'Drawing every scene (not enough real footage of this subject)' });
+            await repairDrawings(st.plan, log, dir);
+          } else if (!footage && st.plan.style !== 'crayon' && avail.photos < 6) {
+            log.warn('too few real photos of the subject — photo scenes become drawings');
+            st.plan.drawn = true;
+            st.plan.scenes.forEach(s => { if (s.visual?.kind === 'image') s.visual = { ...s.visual, kind: 'drawing', svg: '' }; });
+            await repairDrawings(st.plan, log, dir);
+          }
+        }
       }
       if (style) st.plan.style = style;
       fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(st.plan, null, 2));
-      updateRun(runId, { topic: st.plan.topic, style: st.plan.style, title: st.plan.title });
+      updateRun(runId, { topic: st.plan.topic, style: bespoke ? 'bespoke' : st.plan.style, title: st.plan.title });
     });
 
     await stage('voice', async () => {
       const voice = pickVoice(runId);
       let rate = voice.rate;
       for (let attempt = 0; attempt < 3; attempt++) {
-        const text = st.plan.scenes.map(s => s.narration).join(' ');
         setProgress({ detail: `Recording narration (${voice.voice.replace(/^\w\w-\w\w-|Multilingual|Neural/g, '')})` });
-        const v = await narrate(text, dir, { ...voice, rate }, log);
+        const v = await narrate(st.plan.scenes, dir, { ...voice, rate }, log);   // per-scene, energetic delivery
         const total = v.duration + VOICE_DELAY + TAIL;
         log.info(`narration ${v.duration.toFixed(1)}s with ${voice.voice} @ ${rate} → video ${total.toFixed(1)}s`);
         st.voice = { ...v, voice: voice.voice, rate, total };
@@ -131,16 +155,40 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       }
     });
 
-    await stage('media', async () => { st.credits = await fetchMedia(st.plan, dir, log); fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(st.plan, null, 2)); });
-
     const build = () => {
       const timings = sceneTimings(st.plan.scenes, st.voice.words, st.voice.duration + TAIL);
       const seed = Math.abs([...runId].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)) % 100000;
       const spec = composeSpec({ plan: st.plan, timings, words: st.voice.words, voiceDelay: VOICE_DELAY, duration: +st.voice.total.toFixed(2), seed, cfg });
-      return { spec, html: writeComp(dir, spec), seed };
+      return { spec, html: st.film?.ok ? path.join(dir, 'film', 'index.html') : writeComp(dir, spec), seed };
     };
 
+    await stage('direct', async () => {
+      if (!bespoke) return;
+      setProgress({ detail: 'Animation director is designing a bespoke film — usually 20–60 min' });
+      const { spec } = build();
+      try {
+        const f = await directFilm({ dir, spec, plan: st.plan, log, setProgress, language: st.language });
+        st.film = { ok: true, score: f.score, rounds: f.rounds, language: f.language };
+        st.qa = { score: f.score, pass: true, issues: [], rounds: f.rounds, director: true };
+        updateRun(runId, { style: f.language || 'bespoke' });
+        log.info(`bespoke film ready — ${f.language || 'unnamed language'} (review ${f.score ?? '?'}/10 after ${f.rounds ?? '?'} round(s))`);
+      } catch (e) {
+        if (e.cancelled) throw e;
+        st.film = { ok: false, error: e.message };
+        log.warn(`director mode failed (${e.message}) — using the ${st.plan.style} template engine`);
+        updateRun(runId, { style: st.plan.style });
+        if (cfg.direction?.fallback === false) throw e;
+      }
+    });
+
+    await stage('media', async () => {
+      if (st.film?.ok) return;
+      st.credits = await fetchMedia(st.plan, dir, log);
+      fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(st.plan, null, 2));
+    });
+
     await stage('qa', async () => {
+      if (st.film?.ok) return;   // the director loop already had its own independent review
       setProgress({ detail: 'Rendering one still per scene and asking Claude to review them' });
       let { spec, html } = build();
       let r = await reviewStills(html, spec, st.plan, dir, log);
@@ -150,6 +198,8 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
         for (const p of r.patches) {
           const s = st.plan.scenes[p.scene - 1];
           if (!s || !p.visual?.kind) continue;
+          // a drawn video stays drawn: QA may not swap a drawing back to a stock photo
+          if (st.plan.drawn && p.visual.kind === 'image') p.visual = { ...p.visual, kind: 'drawing', svg: '' };
           const newBroll = p.visual.broll && p.visual.broll !== s.visual.broll;
           s.visual = { ...p.visual, broll: p.visual.broll || s.visual.broll, img: newBroll ? undefined : s.visual.img, video: newBroll ? undefined : s.visual.video };
         }
@@ -173,6 +223,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       const silent = path.join(dir, 'video_silent.mp4');
       await renderVideo(html, {
         duration: spec.duration, fps: cfg.video.fps, W: spec.W, H: spec.H, out: silent, log,
+        workers: !st.film?.ok && ['documentary', 'newsflash'].includes(st.plan.style) ? 3 : undefined,   // footage pages are heavier
         shouldCancel: () => cancelRequested(runId) && new Cancelled(),
         onProgress: (done, total, etaS) => setProgress({ stagePct: 0.9 * done / total, detail: `Rendering frames ${done.toLocaleString()} / ${total.toLocaleString()}`, eta: etaS }),
       });
@@ -203,7 +254,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
 
     if (!st.recorded) { recordTopic(runId, st.plan); st.recorded = true; save(); }
     const held = st.held && !st.youtube;
-    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
+    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, film: st.film, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
     log.info('✔ run complete');
     return getRun(runId);
   } catch (e) {

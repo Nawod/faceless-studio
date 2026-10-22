@@ -8,6 +8,7 @@ import { db, getRun, kvGet, kvSet } from './db.js';
 import { runPipeline, todayStatus, newRunId, reconcileStaleRuns, lockOwnerAlive, STAGES, getProgress, requestCancel, resetRun } from './pipeline.js';
 import { authUrl, exchangeCode, isConnected, channelInfo, nextFreeSlot } from './youtube.js';
 import { recentTopics } from './dedup.js';
+import { LANGUAGES, byId, rotationChoices } from './languages.js';
 
 const app = express();
 const PORT = +env('PORT', '3020');
@@ -23,6 +24,7 @@ app.use((req, res, next) => {
   res.set('WWW-Authenticate', 'Basic realm="studio"').status(401).end('auth required');
 });
 app.use(express.static(path.join(ROOT, 'public')));
+app.use('/kit-refs', express.static(path.join(ROOT, 'engines', 'kit', 'refs')));   // reference sheets for the style gallery
 
 // Claude auth = a setup-token in .env, or the CLI's own saved login (~/.claude/.credentials.json).
 const claudeAuthPresent = () => !!env('CLAUDE_CODE_OAUTH_TOKEN') || fs.existsSync(path.join(os.homedir(), '.claude', '.credentials.json'));
@@ -81,7 +83,10 @@ app.get('/media/:id/:file', (req, res) => {
   fs.existsSync(f) ? res.sendFile(f) : res.status(404).end();
 });
 app.post('/api/run', (req, res) => {
-  try { res.json({ runId: start({ upload: req.body?.upload, style: req.body?.style || undefined }) }); }
+  // style: '' = automatic, 'film:<language-id>' = director with that language, 'tpl:<engine>' = a fast template engine
+  const [kind, id] = String(req.body?.style || '').split(':');
+  if (kind === 'film' && !byId(id)) return res.status(400).json({ error: `unknown animation style ${id}` });
+  try { res.json({ runId: start({ upload: req.body?.upload, language: kind === 'film' ? id : undefined, style: kind === 'tpl' ? id : undefined }) }); }
   catch (e) { res.status(409).json({ error: e.message }); }
 });
 // Resume: continue from the last completed stage (keeps topic, script, voice, footage).
@@ -115,6 +120,10 @@ app.post('/api/runs/:id/upload', (req, res) => {
   try { res.json({ runId: start({ runId: r.id, upload: true, forceUpload: true }) }); } catch (e) { res.status(409).json({ error: e.message }); }
 });
 app.get('/api/config', (req, res) => res.json(channel()));
+app.get('/api/languages', (req, res) => {
+  const on = channel().direction?.languages || {}, { choices, recent } = rotationChoices();
+  res.json(LANGUAGES.map(l => ({ ...l, enabled: on[l.id] !== false, upNext: choices.some(c => c.id === l.id), recentlyUsed: recent.includes(l.name) })));
+});
 app.put('/api/config', (req, res) => {
   const c = req.body;
   if (!c?.niche || !c?.video || !c?.styles || !c?.schedule) return res.status(400).json({ error: 'invalid config' });
@@ -141,7 +150,9 @@ setInterval(() => {
   if (!claudeAuthPresent()) return;
   const [h, m] = channel().schedule.runAtLocal.split(':').map(Number);
   const nowD = new Date();
-  if (nowD.getHours() * 60 + nowD.getMinutes() < h * 60 + m) return;
+  // 10-minute grace: the Windows "FacelessStudio Daily" task starts at the exact time and takes the run lock;
+  // the dashboard only steps in if that task didn't run (not installed, or the PC was busy).
+  if (nowD.getHours() * 60 + nowD.getMinutes() < h * 60 + m + 10) return;
   const t = todayStatus();
   if (t.interrupted) {
     // The PC or app stopped mid-run: pick it up again automatically (at most twice per run).

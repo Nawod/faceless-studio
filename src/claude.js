@@ -12,13 +12,15 @@ export class ClaudeError extends Error {}
  */
 export async function askClaude(prompt, opts = {}) {
   const { schema, model = env('CLAUDE_MODEL', 'opus'), tools = [], cwd = ROOT, maxTurns = 12,
-    timeoutMs = 15 * 60_000, system, log, retries = 1 } = opts;
+    timeoutMs = 15 * 60_000, system, log, retries = 1, addDirs = [] } = opts;
   if (!bins.claude) throw new ClaudeError('Claude Code CLI not found. Set CLAUDE_BIN in .env.');
 
   const args = ['-p', '--output-format', 'json', '--model', model, '--max-turns', String(maxTurns)];
   if (schema) args.push('--json-schema', JSON.stringify(schema));
-  if (tools.length) args.push('--allowedTools', tools.join(','));
+  // each allowed tool (pattern) is its own argument: patterns like "Bash(node x.js:*)" contain spaces
+  if (tools.length) args.push('--allowedTools', ...tools);
   else args.push('--tools', '');
+  if (addDirs.length) args.push('--add-dir', ...addDirs);
   if (system) args.push('--append-system-prompt', system);
 
   let lastErr;

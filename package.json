@@ -16,7 +16,10 @@
     "doctor": "node --disable-warning=ExperimentalWarning src/tools/doctor.js"
   },
   "dependencies": {
+    "animejs": "^4.0.2",
     "express": "^4.21.2",
+    "gsap": "^3.13.0",
+    "p5": "^1.11.3",
     "playwright-core": "^1.49.1",
     "three": "^0.170.0"
   }

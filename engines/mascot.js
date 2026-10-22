@@ -9,17 +9,18 @@
     #bgc,#fg{position:absolute;inset:0}
     .scene{position:absolute;inset:0}
     .area{position:absolute;left:70px;right:70px;top:230px;height:640px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-    .stk{background:#fff;border:7px solid ${INK};border-radius:34px;box-shadow:0 12px 0 ${INK}}
+    .stk{color:#fff;-webkit-text-stroke:12px ${INK};paint-order:stroke fill;filter:drop-shadow(0 8px 0 ${INK}33)}
+    .stk svg, .stk canvas{-webkit-text-stroke:0}
     .big{font-weight:900;line-height:.95;letter-spacing:-.03em;color:#fff;-webkit-text-stroke:16px ${INK};paint-order:stroke fill;text-transform:uppercase}
     .big .em{color:${ACC}}
     .num{font-weight:900;font-size:230px;line-height:1;color:#fff;-webkit-text-stroke:18px ${INK};paint-order:stroke fill;letter-spacing:-.04em}
-    .lab{font-weight:800;font-size:54px;padding:16px 34px;margin-top:22px}
-    .pill{display:flex;align-items:center;gap:22px;font-weight:800;font-size:52px;padding:22px 34px;margin:10px 0;width:820px;text-align:left}
+    .lab{font-weight:900;font-size:64px;padding:8px 20px;margin-top:22px}
+    .pill{display:flex;align-items:center;gap:22px;font-weight:900;font-size:64px;padding:8px 20px;margin:6px 0;width:860px;text-align:left}
     .pill b{flex:none;width:72px;height:72px;border-radius:50%;background:${ACC};color:#fff;border:5px solid ${INK};display:flex;align-items:center;justify-content:center;font-size:38px}
-    .emo{display:inline-flex;align-items:center;justify-content:center;width:200px;height:200px;font-size:120px;margin:12px;border-radius:50%}
+    .emo{-webkit-text-stroke:0;filter:drop-shadow(0 10px 12px #0004);display:inline-flex;align-items:center;justify-content:center;width:200px;height:200px;font-size:120px;margin:12px;border-radius:50%}
     .photo{padding:18px 18px 70px;border-radius:12px;background:#fff;border:7px solid ${INK};box-shadow:0 14px 0 ${INK}}
     .photo img{display:block;width:620px;height:560px;object-fit:cover;border-radius:4px}
-    .bubble{position:relative;font-weight:800;font-size:66px;line-height:1.08;padding:44px 50px;max-width:860px}
+    .bubble{position:relative;font-weight:800;font-size:66px;line-height:1.08;padding:44px 50px;max-width:860px;background:#fff;color:${INK};-webkit-text-stroke:0;border:7px solid ${INK};border-radius:70px;filter:none}
     .bubble:after{content:'';position:absolute;left:110px;bottom:-62px;border:30px solid transparent;border-top:42px solid ${INK}}
     .who{font-weight:700;font-size:44px;margin-top:44px;color:#fff;-webkit-text-stroke:8px ${INK};paint-order:stroke fill}
     .vs{font-weight:900;font-size:120px;color:${ACC};-webkit-text-stroke:14px ${INK};paint-order:stroke fill;margin:0 16px}
@@ -56,7 +57,7 @@
       if (v.heading) el('div', 'big', a, esc(v.heading)).style.fontSize = '80px';
       const row = el('div', '', a); row.style.cssText = 'display:flex;align-items:center;margin-top:30px';
       const L = el('div', 'side stk', row, esc(v.left || '')), vs = el('div', 'vs', row, 'VS'), R = el('div', 'side stk', row, esc(v.right || ''));
-      R.style.background = ACC; R.style.color = '#fff';
+      R.style.color = ACC;
       return l => { L.style.transform = `translateY(${(1 - spring(l, { freq: 2, zeta: 0.5 })) * 900}px) rotate(-4deg)`; R.style.transform = `translateY(${(1 - spring(l - 0.2, { freq: 2, zeta: 0.5 })) * 900}px) rotate(4deg)`; vs.style.transform = `scale(${E.outBack(inv(0.5, 0.8, l), 3)})`; };
     },
     icons(a, v) {
@@ -65,13 +66,23 @@
       const em = (v.emoji || []).slice(0, 6).map(e => el('div', 'emo stk', row, e));
       return l => em.forEach((e, k) => { const p = E.outBack(inv(0.2 + k * 0.13, 0.5 + k * 0.13, l), 2.6); e.style.transform = `scale(${p}) translateY(${Math.sin(l * 4 + k) * 8}px)`; });
     },
-    image(a, v) {
-      const ph = el('div', 'photo', a); el('img', '', ph).src = v.img;
-      if (v.heading) { const c = el('div', 'lab stk', a, esc(v.heading)); c.style.marginTop = '-40px'; c.style.position = 'relative'; }
-      return l => { const p = spring(l, { freq: 1.8, zeta: 0.5 }); ph.style.transform = `rotate(${lerp(-20, -3, p)}deg) scale(${p})`; };
+    // full-screen photo behind the host (no polaroid frame), slowly pushing in; heading floats on top
+    image(a, v, dur, i = 0) {
+      const scene = a.parentElement;
+      const bg = el('div', '', scene); bg.style.cssText = 'position:absolute;inset:0;overflow:hidden';
+      const img = el('img', '', bg); img.src = v.img; img.style.cssText = 'position:absolute;inset:-5%;width:110%;height:110%;object-fit:cover';
+      const sh = el('div', '', bg); sh.style.cssText = 'position:absolute;inset:0;background:linear-gradient(#0006,#0000 30%,#0000 55%,#000a)';
+      scene.insertBefore(bg, a);
+      let c = null; if (v.heading) { c = el('div', 'big', a, esc(v.heading)); c.style.fontSize = '104px'; }
+      return (l, d = 4) => {
+        const p = clamp(l / d);
+        img.style.transform = `scale(${1.04 + 0.14 * p}) translateX(${(i % 2 ? 1 : -1) * 40 * p}px)`;
+        bg.style.clipPath = `circle(${E.outExpo(inv(0, 0.5, l)) * 120}% at 50% 60%)`;   // opens from the host like an iris
+        if (c) c.style.transform = `scale(${spring(l - 0.2, { freq: 2.4, zeta: 0.45 })})`;
+      };
     },
     drawing(a, v) {
-      const c = el('div', 'stk', a); c.style.padding = '20px'; c.innerHTML = `<svg viewBox="0 0 400 400" width="560" height="560">${v.svg || ''}</svg>`;
+      const c = el('div', '', a); c.innerHTML = `<svg viewBox="0 0 400 400" width="700" height="700">${v.svg || ''}</svg>`;
       const shapes = [...c.querySelectorAll('path,circle,ellipse,rect,line,polygon,polyline')];
       shapes.forEach(s => { s.setAttribute('pathLength', '1'); s.style.strokeDasharray = '1'; s.style.strokeDashoffset = '1'; s.style.fillOpacity = '0'; if (!s.getAttribute('stroke') || s.getAttribute('stroke') === 'none') s.setAttribute('stroke', INK); s.setAttribute('stroke-width', Math.max(5, +s.getAttribute('stroke-width') || 5)); s.setAttribute('stroke-linecap', 'round'); });
       if (v.heading) el('div', 'lab stk', a, esc(v.heading));
@@ -93,7 +104,7 @@
     const root = el('div', 'scene'); root.style.zIndex = '10'; const a = el('div', 'area', root);
     let v = sc.visual || { kind: 'headline' };
     if (!KINDS[v.kind] || (v.kind === 'image' && !v.img)) v = { ...v, kind: 'headline', heading: v.heading || sc.narration.split(/\s+/).slice(0, 4).join(' ') };
-    return { root, upd: KINDS[v.kind](a, v, sc.end - sc.start), v };
+    return { root, upd: KINDS[v.kind](a, v, sc.end - sc.start, i), v };
   });
 
   // ---------- the Earth mascot (vector redraw of the channel logo) ----------

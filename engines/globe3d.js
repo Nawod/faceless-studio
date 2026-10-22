@@ -8,7 +8,7 @@
     #gl{position:absolute;inset:0}
     .scene{position:absolute;inset:0;z-index:5;background:linear-gradient(#030814e6 0%,#03081499 30%,#03081400 48%)}
     .area{position:absolute;left:70px;right:70px;top:220px;height:560px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-    .glass{background:rgba(10,22,48,.62);border:2px solid rgba(140,200,255,.35);border-radius:30px;box-shadow:0 20px 60px #0008,inset 0 1px 0 rgba(255,255,255,.15)}
+    .glass{background:none;border:0;text-shadow:0 0 28px #000,0 6px 24px #000c}
     .hd{font-weight:900;letter-spacing:-.03em;line-height:.98;text-shadow:0 6px 30px #000c}
     .hd .em{color:${ACC}}
     .num{font-weight:900;font-size:220px;letter-spacing:-.05em;line-height:1;color:${ACC};text-shadow:0 0 50px ${ACC}66}
@@ -88,7 +88,7 @@
     // camera target for this scene
     const tgt = places.length
       ? { lat: places.reduce((s, p) => s + p.lat, 0) / places.length, lon: places.length > 1 ? midLon(places) : places[0].lon, dist: places.length > 1 ? 2.3 + spread(places) * 1.2 : 1.85, cy: 830 }
-      : { lat: 18, lon: null, dist: 4.9, cy: 1180 };
+      : { lat: 18, lon: null, dist: 7.6, cy: 1230 };
     return { root, pins, arcs, upd, tgt, map: places.length > 0 && v.kind === 'map' };
   });
   function midLon(ps) { let x = 0, y = 0; ps.forEach(p => { x += Math.cos(p.lon * Math.PI / 180); y += Math.sin(p.lon * Math.PI / 180); }); return Math.atan2(y, x) * 180 / Math.PI; }
@@ -113,7 +113,7 @@
         return l => em.forEach((e, k) => { e.style.transform = `scale(${E.outBack(inv(0.2 + k * 0.12, 0.5 + k * 0.12, l), 2.4)})`; }); }
       case 'quote': { const q = el('div', 'glass hd', a, '“' + esc(v.heading || '') + '”'); q.style.cssText += ';font-size:70px;padding:44px 48px;max-width:860px';
         const w = v.label ? el('div', 'lb', a, '— ' + esc(v.label)) : null; return l => { q.style.transform = `scale(${E.outBack(inv(0, 0.4, l))})`; if (w) w.style.opacity = String(inv(0.5, 0.8, l)); }; }
-      case 'image': if (v.img) { const c = el('div', 'glass', a); c.style.cssText += ';padding:14px;overflow:hidden'; const im = el('img', '', c); im.src = v.img; im.style.cssText = 'display:block;width:760px;height:520px;object-fit:cover;border-radius:20px';
+      case 'image': if (v.img) { const c = el('div', 'glass', a); c.style.cssText += ';padding:14px;overflow:hidden'; const im = el('img', '', c); im.src = v.img; im.style.cssText = 'display:block;width:980px;height:760px;object-fit:cover;-webkit-mask-image:radial-gradient(ellipse 50% 50% at 50% 50%,#000 55%,transparent 100%)';   // soft vignette, no frame
         return l => { c.style.transform = `scale(${0.85 + 0.15 * spring(l, { freq: 1.6, zeta: 0.7 })})`; im.style.transform = `scale(${1.05 + 0.08 * l / dur})`; }; } // falls through
       default: { const words = (v.heading || (v.places || []).map(p => p.name).join(' · ') || sc.narration.split(/\s+/).slice(0, 4).join(' ')).split(/\s+/);
         const h = el('div', 'hd', a); const longest = Math.max(...words.map(w => w.length), 4); h.style.fontSize = Math.min(170, Math.floor(900 / (longest * 0.6))) + 'px';

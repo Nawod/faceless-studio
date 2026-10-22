@@ -16,7 +16,7 @@
     .lt{top:1000px}
     .lt .k{display:inline-block;background:${YEL};color:${INK};font-weight:900;font-size:36px;padding:6px 18px;letter-spacing:.05em}
     .lt .h{background:${RED};color:#fff;font-weight:900;font-size:62px;line-height:1.05;padding:16px 26px;text-transform:uppercase;box-shadow:0 10px 30px #0008}
-    .panel{top:300px;background:#fff;color:${INK};padding:34px 38px;box-shadow:0 20px 50px #000a;border-left:16px solid ${RED}}
+    .panel{top:340px;color:#fff;padding:10px 0 10px 34px;border-left:14px solid ${RED};text-shadow:0 0 22px #000,0 6px 18px #000d}
     .panel .t{font-weight:900;font-size:36px;letter-spacing:.08em;color:${RED};margin-bottom:12px}
     .panel .n{font-weight:900;font-size:170px;line-height:1;letter-spacing:-.04em}
     .panel .l{font-weight:700;font-size:48px;margin-top:6px}
@@ -24,13 +24,13 @@
     .panel .row b{background:${RED};color:#fff;min-width:64px;height:64px;display:flex;align-items:center;justify-content:center;font-size:36px}
     .quote{font-family:'DM Serif Display',serif;font-size:74px;line-height:1.08}
     .quote mark{background:linear-gradient(transparent 55%,${YEL}aa 55%);color:inherit}
-    .src{font-weight:800;font-size:38px;margin-top:18px;color:#555}
+    .src{font-weight:800;font-size:38px;margin-top:18px;color:${YEL}}
     .loc{top:300px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
     .loc .p{background:#fff;color:${INK};font-weight:900;font-size:58px;padding:12px 26px}
     .loc .c{background:${INK};color:${YEL};font-family:'Space Mono',monospace;font-weight:700;font-size:34px;padding:8px 20px}
     .split{top:330px;display:flex;gap:24px}
-    .split div{flex:1;background:#fff;color:${INK};font-weight:900;font-size:58px;text-align:center;padding:40px 16px;text-transform:uppercase}
-    .split div:last-child{background:${RED};color:#fff}
+    .split div{flex:1;color:#fff;font-weight:900;font-size:76px;line-height:.95;text-align:center;padding:20px 10px;text-transform:uppercase;-webkit-text-stroke:10px #000;paint-order:stroke fill}
+    .split div:last-child{color:${YEL}}
     #big{position:absolute;z-index:450;left:0;right:0;top:780px;text-align:center;font-weight:900;font-size:170px;letter-spacing:-.03em;color:#fff;text-transform:uppercase;-webkit-text-stroke:14px #000;paint-order:stroke fill;text-shadow:0 10px 40px #000}
     #cap{position:absolute;z-index:460;left:60px;right:60px;top:1210px;text-align:center;font-weight:800;font-size:66px;line-height:1.1;color:#fff;text-shadow:0 0 18px #000,0 4px 10px #000}
     #cap .k{color:${YEL}}

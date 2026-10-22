@@ -18,11 +18,18 @@ try {
   // single, explicit runs
   if (opt('--resume') || opt('--plan') || flag('--force')) { await one(opt('--resume')); process.exit(0); }
   // the daily quota: resume an interrupted run first, then make videos until today's target is met
-  for (let guard = 0; guard < 8; guard++) {
+  // Each run (21:15, and the 23:45 catch-up) gets its own budget of attempts, so a bad first run can't
+  // use up the retry. Stops as soon as today's quota of finished videos is met.
+  console.log(`\n=== daily run ${new Date().toLocaleString()} ===`);
+  let attempts = 0;
+  const budget = todayStatus().target + 3;
+  for (let guard = 0; guard < budget + 2; guard++) {
     const t = todayStatus();
+    if (t.made >= t.target) { console.log(`today: ${t.made}/${t.target} videos made — done`); break; }
+    if (attempts >= budget) { console.log(`today: ${t.made}/${t.target} made after ${attempts} attempts this run — stopping (the catch-up run will try again)`); break; }
+    attempts++;
     if (t.interrupted) { console.log(`resuming interrupted run ${t.interrupted.id}`); await one(t.interrupted.id).catch(e => console.error('FAILED:', e.message)); continue; }
-    if (!t.needMore) { console.log(`today: ${t.made}/${t.target} videos made — done`); break; }
-    console.log(`making video ${t.made + 1} of ${t.target}`);
+    console.log(`making video ${t.made + 1} of ${t.target} (attempt ${attempts}/${budget})`);
     await one().catch(e => console.error(e.cancelled ? 'CANCELLED' : 'FAILED:', e.message));
   }
   process.exit(0);

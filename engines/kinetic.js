@@ -16,7 +16,7 @@
     .num{font-weight:900;letter-spacing:-.06em;line-height:1;font-size:250px;font-variant-numeric:tabular-nums}
     .num small{font-size:.42em;letter-spacing:-.03em}
     .card{background:#fff;border-radius:30px;box-shadow:0 18px 50px #0000001c,0 2px 6px #0000000f}
-    .item{display:flex;align-items:center;gap:30px;width:860px;padding:34px 38px;margin:14px 0;font-size:54px;font-weight:800;text-align:left;letter-spacing:-.02em}
+    .item{display:flex;align-items:center;gap:30px;width:900px;padding:14px 10px;margin:10px 0;font-size:66px;font-weight:900;text-align:left;letter-spacing:-.03em;transform-origin:left center}
     .badge{flex:none;width:76px;height:76px;border-radius:50%;background:${ACC};color:#fff;display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:900}
     .head{font-weight:800;font-size:70px;letter-spacing:-.03em;margin-bottom:36px}
     .vs{position:absolute;left:50%;top:50%;width:150px;height:150px;margin:-75px;border-radius:50%;background:${INK};color:#fff;font-weight:900;font-size:58px;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 40px #0004}
@@ -68,8 +68,8 @@
     lbl.style.maxWidth = '820px'; lbl.style.fontSize = '60px'; lbl.style.color = INK;
     const target = Number(v.value) || 0, ring = box.querySelector('.ring');
     const pre = esc(v.prefix || ''), suf = esc(v.suffix || '');
-    const len = Math.max(String(Math.round(target)).length + (pre + suf).length * 0.45, 3);
-    num.style.fontSize = Math.min(260, Math.floor(1000 / (len * 0.62))) + 'px';
+    const len = Math.max(fmtNum(target, target).length + (pre + suf).length * 0.5, 3);
+    num.style.fontSize = Math.min(240, Math.floor(1050 / (len * 0.64))) + 'px'; num.style.whiteSpace = 'nowrap';
     const T = Math.min(1.8, dur * 0.55);
     return local => {
       const p = E.outExpo(inv(0.15, 0.15 + T, local));
@@ -83,30 +83,35 @@
 
   function list(root, v, dur) {
     if (v.heading) el('div', 'head', root, esc(v.heading));
-    const items = (v.items || []).slice(0, 4).map((txt, k) => {
-      const it = el('div', 'item card', root, `<span class="badge">${k + 1}</span><span>${esc(txt)}</span>`);
-      return it;
-    });
+    // floating words, no cards: the item being talked about is big and inked, the others recede
+    const items = (v.items || []).slice(0, 4).map((txt, k) => el('div', 'item', root, `<span class="badge">${k + 1}</span><span>${esc(txt)}</span>`));
     const step = Math.max(0.45, (dur - 0.8) / Math.max(1, items.length));
     return local => items.forEach((it, k) => {
-      const sp = spring(local - 0.25 - k * step, { freq: 2.2, zeta: 0.65 });
-      it.style.opacity = clamp(sp * 1.5); it.style.transform = `translateX(${(1 - sp) * 120}px)`;
+      const sp = spring(local - 0.25 - k * step, { freq: 2.4, zeta: 0.55 });
       const current = local >= 0.25 + k * step && (k === items.length - 1 || local < 0.25 + (k + 1) * step);
-      it.style.boxShadow = current ? `0 22px 60px #0000002a, inset 8px 0 0 ${ACC}` : '';
+      it.style.opacity = String(clamp(sp * 1.5) * (current ? 1 : 0.38));
+      it.style.transform = `translateX(${(1 - sp) * 160}px) scale(${current ? 1.06 : 0.94}) rotate(${(1 - sp) * 6}deg)`;
     });
   }
 
+  // the whole screen splits diagonally: one side each, no boxes
   function compare(root, v) {
-    if (v.heading) { const h = el('div', 'head', root, esc(v.heading)); h.style.position = 'absolute'; h.style.top = '40px'; }
-    const L = el('div', 'side card', root, esc(v.left || '')), R = el('div', 'side', root, esc(v.right || ''));
-    L.style.left = '0px'; R.style.right = '0px'; R.style.background = INK; R.style.color = '#fff'; R.style.borderRadius = '30px';
+    const scene = root.parentElement;
+    const mk = (txt, bg, fg, clip, x) => {
+      const half = el('div', '', scene); half.style.cssText = `position:absolute;inset:0;background:${bg};clip-path:${clip}`;
+      const w = el('div', '', half, esc(txt)); w.style.cssText = `position:absolute;left:${x}px;top:560px;width:460px;font-weight:900;font-size:92px;line-height:.95;letter-spacing:-.04em;color:${fg};text-align:center`;
+      scene.insertBefore(half, root); return { half, w };
+    };
+    const L = mk(v.left || '', '#F3F2EF', INK, 'polygon(0 0, 62% 0, 38% 100%, 0 100%)', 40);
+    const R = mk(v.right || '', INK, '#fff', 'polygon(62% 0, 100% 0, 100% 100%, 38% 100%)', 580);
+    R.w.style.top = '820px';
+    if (v.heading) { const h = el('div', 'head', root, esc(v.heading)); h.style.cssText += ';position:absolute;top:-60px;color:#fff;mix-blend-mode:difference'; }
     const vs = el('div', 'vs', root, 'VS');
-    root.style.perspective = '1800px';
     return local => {
-      const a = spring(local - 0.05, { freq: 1.8, zeta: 0.7 }), b = spring(local - 0.2, { freq: 1.8, zeta: 0.7 });
-      L.style.transform = `translateX(${(1 - a) * -500}px) rotateY(${lerp(40, 14, a)}deg)`;
-      R.style.transform = `translateX(${(1 - b) * 500}px) rotateY(${lerp(-40, -14, b)}deg)`;
-      const c = E.outBack(inv(0.45, 0.8, local), 2.4); vs.style.transform = `scale(${c}) rotate(${(1 - c) * -90}deg)`;
+      const a = E.outExpo(inv(0, 0.5, local)), b = E.outExpo(inv(0.15, 0.65, local));
+      L.half.style.transform = `translateX(${(1 - a) * -1100}px)`; R.half.style.transform = `translateX(${(1 - b) * 1100}px)`;
+      L.w.style.transform = `translateY(${Math.sin(local * 2) * 10}px)`; R.w.style.transform = `translateY(${Math.sin(local * 2 + 1.5) * 10}px)`;
+      const c = E.outBack(inv(0.45, 0.8, local), 2.4); vs.style.transform = `scale(${c * (1 + 0.05 * Math.sin(local * 6))}) rotate(${(1 - c) * -90}deg)`;
     };
   }
 
@@ -157,16 +162,24 @@
     };
   }
 
-  function image(root, v) {
-    const card = el('div', 'img card', root);
-    const img = el('img', '', card); img.src = v.img;
-    let pill = null; if (v.heading) pill = el('div', 'pill', root, esc(v.heading));
-    root.style.perspective = '2000px';
-    return (local, dur) => {
-      const sp = spring(local, { freq: 1.6, zeta: 0.75 });
-      card.style.transform = `rotateX(${(1 - sp) * 18}deg) translateY(${(1 - sp) * 120}px)`;
-      img.style.transform = `scale(${1.08 + 0.1 * (local / dur)}) translate(${-1.5 * (local / dur) * 10}px, 0)`;
-      if (pill) { const p = E.outBack(inv(0.35, 0.75, local)); pill.style.transform = `scale(${p})`; }
+  // full-screen photo with a moving camera (no card, no frame); the heading floats over it
+  const MOVES = ['in', 'out', 'left', 'right', 'up'];
+  function image(root, v, dur, i = 0) {
+    const scene = root.parentElement;
+    const bg = el('div', '', scene); bg.style.cssText = 'position:absolute;inset:0;overflow:hidden';
+    const img = el('img', '', bg); img.src = v.img; img.style.cssText = 'position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover';
+    const shade = el('div', '', bg); shade.style.cssText = 'position:absolute;inset:0;background:linear-gradient(#0000 40%,#F3F2EFcc 62%,#F3F2EF 72%,#F3F2EF00 100%)';
+    scene.insertBefore(bg, root);
+    root.style.justifyContent = 'flex-start';
+    let head = null; if (v.heading) { head = el('div', 'hl', root, esc(v.heading)); head.style.cssText += ';font-size:110px;color:#fff;text-shadow:0 6px 30px #000a;margin-top:-40px'; }
+    const move = MOVES[i % MOVES.length];
+    return (local, d) => {
+      const p = clamp(local / d), e = E.inOutCubic(p);
+      const s = move === 'out' ? 1.22 - 0.16 * e : 1.04 + 0.16 * e;
+      const x = move === 'left' ? -50 * e : move === 'right' ? 50 * e : 0, y = move === 'up' ? -60 * e : 0;
+      img.style.transform = `translate(${x}px, ${y}px) scale(${s}) rotate(${(move === 'in' ? 1 : -1) * 1.2 * e}deg)`;
+      bg.style.opacity = String(E.outCubic(inv(0, 0.25, local)));
+      if (head) head.style.transform = `translateY(${(1 - spring(local - 0.15, { freq: 2.2, zeta: 0.55 })) * 140}px)`;
     };
   }
 
@@ -225,7 +238,7 @@
     const root = el('div', 'scene'); const area = el('div', 'area', root);
     let v = sc.visual || { kind: 'headline' };
     if ((v.kind === 'image' && !v.img) || !KINDS[v.kind]) v = { kind: 'headline', heading: v.heading || sc.narration.split(/\s+/).slice(0, 4).join(' '), emphasis: v.emphasis };
-    const upd = KINDS[v.kind](area, v, sc.end - sc.start);
+    const upd = KINDS[v.kind](area, v, sc.end - sc.start, i);
     built.push({ root, upd, i });
   });
 

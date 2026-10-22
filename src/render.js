@@ -20,7 +20,8 @@ async function openPage(html, W, H) {
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  // a missing/unsupported resource (e.g. one stock clip) is not fatal — only real script errors are
+  page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|net::ERR_|404/i.test(m.text())) errors.push(m.text()); });
   await page.goto(pathToFileURL(html).href, { waitUntil: 'load', timeout: 120_000 });
   await page.waitForFunction(() => window.render && window.__ready, null, { timeout: 60_000 });
   await page.evaluate(() => window.__ready);
@@ -72,14 +73,15 @@ export async function renderVideo(html, { duration, fps = 30, W = 1080, H = 1920
         ff = spawn(bins.ffmpeg, ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-',
           '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), `seg_${String(w).padStart(2, '0')}.mp4`], { cwd: segDir, windowsHide: true });
         procs.add(ff);
-        let ffErr = ''; ff.stderr.on('data', d => (ffErr += d));
+        let ffErr = '', ffClosed = false; ff.stderr.on('data', d => (ffErr += d)); ff.on('close', () => { ffClosed = true; });
         const closed = new Promise(r => ff.on('close', r));
         ff.stdin.on('error', () => {});
         for (let f = a; f < b; f++) {
           if (firstError) return;                     // another worker failed: stop quietly
           await page.evaluate(t => window.render(t), f / fps);
           const buf = await page.screenshot({ type: 'jpeg', quality: 93 });
-          if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once('drain', r));
+          // never wait forever on an encoder that was stopped: drain OR close OR another worker failing
+          if (!ff.stdin.write(buf)) await new Promise(r => { const done = () => { clearInterval(iv); ff.stdin.removeListener('drain', done); r(); }; ff.stdin.once('drain', done); const iv = setInterval(() => { if (ffClosed || firstError) done(); }, 200); });
           if (++done % 150 === 0) log?.info(`rendered ${done}/${total} frames (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
           if (done % 30 === 0) {
             const stop = shouldCancel?.(); if (stop) throw stop;

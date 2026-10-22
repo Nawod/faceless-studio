@@ -26,10 +26,40 @@ export function pickVoice(runId) {
   return { engine, voice: list[h % list.length], rate: cfg.voice.rate };
 }
 
-export async function narrate(text, dir, { engine, voice, rate }, log) {
+const pct = r => parseInt(String(r).replace(/[^\d-]/g, ''), 10) || 0;
+const fmtRate = n => `${n >= 0 ? '+' : ''}${n}%`;
+
+/**
+ * Energetic, varied delivery: each scene is voiced on its own. The hook is fast and bright, the middle keeps
+ * momentum, questions lift, and the payoff gets a beat of silence before it and a slightly heavier read.
+ */
+export function deliveryPlan(scenes, baseRate) {
+  const base = pct(baseRate), n = scenes.length;
+  return scenes.map((s, i) => {
+    const text = s.narration.trim();
+    let rate = base + 4, pitch = 0, gap = 0.07;
+    if (i === 0) { rate = base + 8; pitch = 3; gap = 0.18; }                              // the hook: punchy, then a breath
+    else if (i >= n - 2) { rate = base; pitch = -1; gap = i === n - 1 ? 0 : 0.12; }       // payoff + CTA: land it
+    if (/\?\s*$/.test(text)) pitch += 2;                                                // questions lift
+    if (/!\s*$/.test(text)) { rate += 3; pitch += 2; }
+    if (/^(but|then|and then|here's|now)\b/i.test(text)) gap = Math.max(gap, 0.1);
+    if (i === n - 3) gap = 0.32;                                                        // dramatic pause before the payoff
+    return { text, rate: fmtRate(rate), pitch: `${pitch >= 0 ? '+' : ''}${pitch}Hz`, gap };
+  });
+}
+
+export async function narrate(textOrScenes, dir, { engine, voice, rate }, log) {
   const txt = path.join(dir, 'narration.txt'), mp3 = path.join(dir, 'voice.mp3'), json = path.join(dir, 'words.json');
-  fs.writeFileSync(txt, text);
-  const args = [path.join(PY, 'tts.py'), txt, mp3, json, '--engine', engine, '--voice', voice, '--rate', rate];
+  let args;
+  if (Array.isArray(textOrScenes)) {
+    const segs = path.join(dir, 'segments.json');
+    fs.writeFileSync(segs, JSON.stringify(deliveryPlan(textOrScenes, rate)));
+    fs.writeFileSync(txt, textOrScenes.map(s => s.narration).join(' '));
+    args = [path.join(PY, 'tts.py'), '--segments', segs, mp3, json, '--engine', engine, '--voice', voice];
+  } else {
+    fs.writeFileSync(txt, textOrScenes);
+    args = [path.join(PY, 'tts.py'), txt, mp3, json, '--engine', engine, '--voice', voice, '--rate', rate];
+  }
   try {
     log.info(await py(args, log));
   } catch (e) {
@@ -48,6 +78,15 @@ const norm = w => w.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Map each scene to [start, end] using the TTS word timings (robust to punctuation/number differences). */
 export function sceneTimings(scenes, words, totalDur) {
+  // Per-scene voicing: every word knows its scene, so timings are exact.
+  if (words.length && words.every(w => Number.isInteger(w.seg))) {
+    return scenes.map((s, i) => {
+      const ws = words.filter(w => w.seg === i), next = words.find(w => w.seg > i);
+      const start = i === 0 ? 0 : Math.max(0, (ws[0]?.start ?? 0) - 0.08);
+      const end = i === scenes.length - 1 ? totalDur : (next ? next.start - 0.08 : totalDur);
+      return { start, end: Math.max(start + 0.4, end) };
+    });
+  }
   const tokens = scenes.map(s => s.narration.split(/\s+/).map(norm).filter(Boolean));
   const counts = tokens.map(t => t.length);
   const totalTokens = counts.reduce((a, b) => a + b, 0);

@@ -4,7 +4,10 @@
     {
       "name": "faceless-studio",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["--disable-warning=ExperimentalWarning", "src/server.js"],
+      "runtimeArgs": [
+        "--disable-warning=ExperimentalWarning",
+        "src/server.js"
+      ],
       "port": 3020
     }
   ]

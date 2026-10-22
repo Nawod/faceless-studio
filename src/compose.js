@@ -20,6 +20,8 @@ const PALETTES = {
 const FOOTAGE = ['documentary', 'newsflash'];
 function withSubject(v = {}, subject, style) {
   if (!subject) return v;
+  // crayon is drawn by hand, every frame: photos become drawings of the same thing
+  if (style === 'crayon' && v.kind === 'image') return { ...v, kind: 'drawing', img: undefined, svg: v.svg || subject.svg, svg2: v.svg2 || subject.svg2 };
   if (FOOTAGE.includes(style) && !v.img && !v.video && subject.img) return { ...v, img: subject.img };
   if (v.kind === 'image' && !v.img && !v.video && subject.img) return { ...v, img: subject.img };
   if (v.kind === 'image' && !v.img && !v.video && !subject.img && subject.svg) return { ...v, kind: 'drawing', svg: subject.svg };
@@ -42,8 +44,9 @@ export function composeSpec({ plan, timings, words, voiceDelay, duration, seed, 
       globe: pathToFileURL(path.join(ROOT, cfg.brand.watermark)).href,
       wordmark: pathToFileURL(path.join(ROOT, cfg.brand.wordmark)).href,
     } : null,
-    subject: plan.subject ? { name: plan.subject.name, img: plan.subject.img || null, svg: plan.subject.svg || '' } : null,
-    scenes: plan.scenes.map((s, i) => ({ narration: s.narration, visual: withSubject(s.visual, plan.subject, plan.style), start: timings[i].start + (i ? voiceDelay : 0), end: timings[i].end + voiceDelay })),
+    subject: plan.subject ? { name: plan.subject.name, img: plan.style === 'crayon' ? null : (plan.subject.img || null), svg: plan.subject.svg || '', svg2: plan.subject.svg2 || '' } : null,
+    // scene 1 starts "before" frame 0, so the hook visual is already on screen in the very first frame
+    scenes: plan.scenes.map((s, i) => ({ narration: s.narration, visual: withSubject(s.visual, plan.subject, plan.style), start: i ? timings[i].start + voiceDelay : -0.5, end: timings[i].end + voiceDelay })),
     words: words.map(w => ({ word: w.word, start: +(w.start + voiceDelay).toFixed(3), end: +(w.end + voiceDelay).toFixed(3) })),
   };
 }
@@ -66,10 +69,46 @@ export function writeComp(dir, spec) {
 </head><body><div id="stage"></div>
 ${deps}
 <script src="${eng}/${spec.style}.js"></script>
+<script src="${eng}/motion.js"></script>
 <script src="${eng}/brand.js"></script>
 <script src="${eng}/preview.js"></script>
 </body></html>`);
   return path.join(comp, 'index.html');
+}
+
+/**
+ * Page for a bespoke, agent-authored film: libraries + film kit + the director's film.js (+ film.css), then the brand layer.
+ * The director only ever writes film/film.js and film/film.css.
+ */
+export function writeFilmPage(dir, spec, { three = false } = {}) {
+  const film = path.join(dir, 'film');
+  fs.mkdirSync(film, { recursive: true });
+  const eng = pathToFileURL(ENGINES).href, nm = pathToFileURL(path.join(ROOT, 'node_modules')).href;
+  const gsapPlugins = ['gsap', 'MorphSVGPlugin', 'DrawSVGPlugin', 'MotionPathPlugin', 'CustomEase', 'Physics2DPlugin', 'SplitText'];
+  const libs = [
+    ...gsapPlugins.map(p => `${nm}/gsap/dist/${p}.min.js`),
+    `${nm}/p5/lib/p5.min.js`,
+    `${nm}/animejs/lib/anime.umd.js`,
+    ...(three ? ['data:text/javascript,window.exports={};', `${nm}/three/build/three.cjs`, 'data:text/javascript,window.THREE=window.exports;'] : []),
+  ];
+  fs.writeFileSync(path.join(film, 'spec.js'), `window.SPEC = ${JSON.stringify(spec)};`);
+  if (!fs.existsSync(path.join(film, 'film.css'))) fs.writeFileSync(path.join(film, 'film.css'), '/* film styles */\n');
+  fs.writeFileSync(path.join(film, 'index.html'), `<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="${eng}/fonts/fonts.css">
+<style>html,body{margin:0;width:${spec.W}px;height:${spec.H}px;overflow:hidden;background:#000}#stage{position:relative;width:${spec.W}px;height:${spec.H}px;overflow:hidden}</style>
+<link rel="stylesheet" href="film.css">
+<script src="spec.js"></script>
+${libs.map(s => `<script src="${s}"></script>`).join('\n')}
+<script src="${eng}/common.js"></script>
+<script src="${eng}/kit/film.js"></script>
+<script src="${eng}/kit/rig.js"></script>
+<script src="${eng}/kit/fx.js"></script>
+</head><body><div id="stage"></div>
+<script src="film.js"></script>
+<script src="${eng}/brand.js"></script>
+<script src="${eng}/preview.js"></script>
+</body></html>`);
+  return path.join(film, 'index.html');
 }
 
 /** Sound design cues derived from the timeline: whoosh on cuts, pops for list items, ticks for counters, a riser into the payoff. */

@@ -13,10 +13,8 @@
     "primary": "Real, verified facts that feel like glitches in Earth's code: bizarre animals and nature, physics and space anomalies, the human body, strange places, history's weird coincidences, and everyday things that make no sense until explained. Frame each topic as a 'bug' in reality, then explain the real science behind it.",
     "avoid": [
       "partisan politics and elections",
-      "tragedies, violence, crime involving real victims",
       "content about minors",
       "celebrity gossip and rumours",
-      "conspiracy theories presented as fact",
       "anything that cannot be backed by at least two reputable sources"
     ],
     "trendWeight": 0.4
@@ -35,7 +33,7 @@
       "bestFor": "tech, business, money, companies, 'how X works', lists, stats, comparisons"
     },
     "collage": {
-      "enabled": true,
+      "enabled": false,
       "bestFor": "psychology, self-improvement, history, culture, ideas, quotes, 'why we do X'"
     },
     "crayon": {
@@ -70,19 +68,19 @@
   },
   "voice": {
     "edge": [
+      "en-US-GuyNeural",
+      "en-US-ChristopherNeural",
       "en-US-AndrewMultilingualNeural",
-      "en-US-AvaMultilingualNeural",
-      "en-GB-RyanNeural",
-      "en-US-BrianMultilingualNeural",
-      "en-GB-SoniaNeural"
+      "en-US-RogerNeural",
+      "en-US-AriaNeural"
     ],
     "google": [
-      "en-US-Neural2-J",
-      "en-US-Neural2-F",
-      "en-GB-Neural2-B",
-      "en-GB-Neural2-C"
+      "en-US-Chirp3-HD-Charon",
+      "en-US-Chirp3-HD-Puck",
+      "en-US-Chirp3-HD-Fenrir",
+      "en-US-Chirp3-HD-Aoede"
     ],
-    "rate": "+6%"
+    "rate": "+10%"
   },
   "schedule": {
     "enabled": true,
@@ -109,5 +107,23 @@
     "madeForKids": false,
     "containsSyntheticMedia": true,
     "autoUpload": true
+  },
+  "direction": {
+    "mode": "bespoke",
+    "fallback": true,
+    "languages": {
+      "object-mascot": true,
+      "modern-flat-people": true,
+      "kinetic-type": true,
+      "storybook-process": true,
+      "parallax-nature": true,
+      "pop-art": true,
+      "cinematic-flat": true,
+      "synthwave": true,
+      "iris-worlds": true,
+      "line-drawn-world": true,
+      "paper-cutout": true,
+      "generative-nature": true
+    }
   }
 }

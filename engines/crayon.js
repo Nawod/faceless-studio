@@ -33,22 +33,62 @@
   const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   host.setAttribute('viewBox', '0 0 400 400'); host.style.cssText = 'position:absolute;left:-9999px;width:400px;height:400px';
   document.body.appendChild(host);
+  // Parse inner SVG into sampled crayon strokes. Keeps animation tags: data-anim on an element (or on a <g> around
+  // several) moves those parts; the pivot is the bounding box of whatever carries the tag.
   function parseDrawing(svg) {
-    host.innerHTML = svg || '';
-    const out = [];
+    if (!svg) return [];
+    host.innerHTML = svg;
+    const out = [], owners = new Map();
+    const rootInv = host.getScreenCTM()?.inverse();
+    const toUser = (e, x, y) => { const m = e.getScreenCTM(); if (!m || !rootInv) return [x, y]; const p = new DOMPoint(x, y).matrixTransform(m).matrixTransform(rootInv); return [p.x, p.y]; };
     host.querySelectorAll('path,circle,ellipse,rect,line,polygon,polyline').forEach(e => {
       let len = 0; try { len = e.getTotalLength(); } catch { return; }
       if (!(len > 0)) return;
       const n = Math.max(8, Math.ceil(len / 3)), pts = [];
-      for (let k = 0; k <= n; k++) { const p = e.getPointAtLength((k / n) * len); pts.push([p.x, p.y]); }
+      for (let k = 0; k <= n; k++) { const p = e.getPointAtLength((k / n) * len); pts.push(toUser(e, p.x, p.y)); }
       const tag = e.tagName.toLowerCase();
       const closed = ['circle', 'ellipse', 'rect', 'polygon'].includes(tag) || /z\s*$/i.test(e.getAttribute('d') || '');
-      const fill = e.getAttribute('fill'), stroke = e.getAttribute('stroke');
-      const sw = parseFloat(e.getAttribute('stroke-width')) || 4;
-      out.push({ pts, closed, fill: fill && fill !== 'none' && !/^url/.test(fill) ? fill : null, stroke: stroke && stroke !== 'none' ? stroke : (fill && fill !== 'none' ? null : LINE), sw });
+      const fill = e.getAttribute('fill') || e.closest('[fill]')?.getAttribute('fill'), stroke = e.getAttribute('stroke') || e.closest('[stroke]')?.getAttribute('stroke');
+      const sw = parseFloat(e.getAttribute('stroke-width') || e.closest('[stroke-width]')?.getAttribute('stroke-width')) || 4;
+      let anim = null;
+      const owner = e.closest('[data-anim]');
+      if (owner && host.contains(owner)) {
+        if (!owners.has(owner)) {
+          const bb = owner.getBBox(), a = toUser(owner, bb.x, bb.y), b = toUser(owner, bb.x + bb.width, bb.y + bb.height);
+          owners.set(owner, { type: owner.getAttribute('data-anim').trim().split(/\s+/)[0].toLowerCase(), x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]), phase: owners.size * 0.37 });
+        }
+        anim = owners.get(owner);
+      }
+      out.push({ pts, closed, anim, fill: fill && fill !== 'none' && !/^url/.test(fill) ? fill : null, stroke: stroke && stroke !== 'none' ? stroke : (fill && fill !== 'none' ? null : LINE), sw });
     });
     return out;
   }
+
+  // ---------- motion: every move is a pure function of (stepped) time, applied to the sampled points ----------
+  const TAU = Math.PI * 2;
+  function motion(a, q) {
+    if (!a) return null;
+    const cx = (a.x0 + a.x1) / 2, cy = (a.y0 + a.y1) / 2, h = Math.max(20, a.y1 - a.y0), ph = a.phase;
+    const rot = (ang, px, py) => (x, y) => { const c = Math.cos(ang), s = Math.sin(ang), dx = x - px, dy = y - py; return [px + dx * c - dy * s, py + dx * s + dy * c]; };
+    const scl = (sx, sy, px, py) => (x, y) => [px + (x - px) * sx, py + (y - py) * sy];
+    const mv = (dx, dy) => (x, y) => [x + dx, y + dy];
+    switch (a.type) {
+      case 'bob': return mv(0, Math.sin((q + ph) * TAU * 0.9) * h * 0.06);
+      case 'float': return mv(Math.sin((q + ph) * TAU * 0.25) * 6, Math.sin((q + ph) * TAU * 0.4) * 12);
+      case 'sway': return rot(Math.sin((q + ph) * TAU * 0.6) * 0.12, cx, a.y1);
+      case 'wiggle': return rot(Math.sin((q + ph) * TAU * 2.2) * 0.09, cx, cy);
+      case 'spin': return rot((q + ph) * TAU * 0.35, cx, cy);
+      case 'pulse': { const s = 1 + 0.08 * Math.sin((q + ph) * TAU * 1.3); return scl(s, s, cx, cy); }
+      case 'blink': return ((q + ph) % 3.1) < 0.16 ? scl(1, 0.12, cx, cy) : null;
+      case 'walk': return mv(Math.sin((q + ph) * TAU * 0.3) * 34, -Math.abs(Math.sin((q + ph) * TAU * 1.5)) * 9);
+      case 'shake': return mv((hash(Math.floor(q * 12), ph * 100) - 0.5) * 8, 0);
+      case 'grow': { const s = E.outBack(clamp((q - 0.3) / 0.7), 2); return scl(s, s, cx, a.y1); }
+      case 'orbit': return mv(Math.cos((q + ph) * TAU * 0.5) * 18, Math.sin((q + ph) * TAU * 0.5) * 18);
+      case 'fall': { const d = ((q + ph) * 90) % 140; return mv(0, d); }
+      default: return null;
+    }
+  }
+  const moved = (pts, f) => (f ? pts.map(([x, y]) => f(x, y)) : pts);
 
   // ---------- crayon primitives (draw into L) ----------
   function crayonLine(pts, upto, color, width, seed, boil) {
@@ -124,9 +164,12 @@
     else if (['image', 'model3d', 'map'].includes(v.kind) || !v.kind) v = { ...v, kind: v.svg || SUBJ.svg ? 'drawing' : 'headline', svg: v.svg || SUBJ.svg, heading: v.heading || sc.narration.split(/\s+/).slice(0, 4).join(' ') };
     // text-only scenes still show the subject: its drawing sits above the words
     const withSubject = ['headline', 'quote'].includes(v.kind) && SUBJ.svg;
+    // stats, lists, comparisons and icons also get a small animated drawing (the scene's own, else the subject)
+    const mini = ['stat', 'list', 'timeline', 'compare', 'icons'].includes(v.kind) && (v.svg || SUBJ.svg);
     if (v.kind === 'photo') photos[i] = FS.loadImage(v.img).then(img => { photos[i] = img; });
     const washes = BOX.filter(c => c !== ACC);
-    return { v, withSubject, shapes: v.kind === 'drawing' ? parseDrawing(v.svg) : withSubject ? parseDrawing(SUBJ.svg) : [], wash: washes[(i + S.seed) % washes.length], seed: i * 13 + 1 };
+    const src = v.kind === 'drawing' ? [v.svg, v.svg2] : (withSubject || mini) ? (v.svg ? [v.svg, v.svg2] : [SUBJ.svg, SUBJ.svg2]) : [];
+    return { v, withSubject, mini, shapes: parseDrawing(src[0]), shapes2: parseDrawing(src[1]), wash: washes[(i + S.seed) % washes.length], seed: i * 13 + 1 };
   });
 
   // a real photo taped onto the page (drawn under the wax so crayon scribbles can frame it)
@@ -144,23 +187,39 @@
     ctx.restore();
   }
 
-  function drawShapes(shapes, local, dur, seed, boil, x, y, scale) {
-    L.save(); L.translate(x, y); L.scale(scale, scale);
-    const n = shapes.length, per = Math.min(0.55, (dur * 0.6) / Math.max(1, n));
-    shapes.forEach((s, k) => {
+  // Draw a picture: it is drawn on stroke by stroke, then comes alive — tagged parts move, and if there is a second
+  // pose the two alternate on the beat (substitution animation, ~2.5 drawings a second). Motion steps at 12 fps.
+  function drawShapes(shapes, shapes2, local, dur, seed, boil, x, y, scale) {
+    if (!shapes.length) return;
+    const n = shapes.length, per = Math.min(0.32, (Math.min(dur, 4) * 0.55) / Math.max(1, n));
+    const drawnAt = 0.2 + (n - 1) * per * 0.8 + per + 0.4;
+    const q = Math.floor(local * 12) / 12;
+    const alive = local > drawnAt;
+    const pose = alive && shapes2.length && Math.floor((q - drawnAt) * 2.5) % 2 ? shapes2 : shapes;
+    const anyAnim = pose.some(s => s.anim) || shapes2.length;
+    // a drawing with no tagged parts still breathes
+    const breath = anyAnim ? 0 : Math.sin(q * TAU * 0.7) * 5;
+    L.save(); L.translate(x, y + (alive ? breath : 0)); L.scale(scale, scale);
+    pose.forEach((s, k) => {
       const t0 = 0.2 + k * per * 0.8;
-      const pLine = E.inOutCubic(inv(t0, t0 + per, local)), pFill = inv(t0 + per * 0.6, t0 + per * 0.6 + 0.7, local);
-      if (s.fill && s.closed) hatch(s.pts, pFill, s.fill, seed + k, boil);
-      if (s.stroke) crayonLine(s.pts, pLine, s.stroke, Math.max(3.2, s.sw * 0.85), seed + k, boil);
-      else if (s.fill && !s.closed) crayonLine(s.pts, pLine, s.fill, Math.max(3.2, s.sw * 0.85), seed + k, boil);
+      const pLine = alive ? 1 : E.inOutCubic(inv(t0, t0 + per, local)), pFill = alive ? 1 : inv(t0 + per * 0.6, t0 + per * 0.6 + 0.5, local);
+      const f = alive ? motion(s.anim, q - drawnAt) : null;
+      const pts = moved(s.pts, f);
+      if (s.fill && s.closed) hatch(pts, pFill, s.fill, seed + k, boil);
+      if (s.stroke) crayonLine(pts, pLine, s.stroke, Math.max(3.2, s.sw * 0.85), seed + k, boil);
+      else if (s.fill && !s.closed) crayonLine(pts, pLine, s.fill, Math.max(3.2, s.sw * 0.85), seed + k, boil);
     });
     L.restore();
   }
 
   function drawScene(i, local, dur, boil) {
-    const { v, shapes, seed, withSubject } = items[i];
+    const { v, shapes, shapes2, seed, withSubject, mini } = items[i];
     const ox = i * PAGE_STEP;
     L.save(); L.translate(ox, 0);
+    if (mini) {                                   // small animated drawing at the top, the rest shifts down
+      drawShapes(shapes, shapes2, local, dur, seed + 50, boil, W / 2 - 150, 120, 0.75);
+      L.translate(0, 110);
+    }
     const head = v.heading && v.kind !== 'quote' ? v.heading : null;
     if (v.kind === 'photo') {
       if (head) crayonText(head, W / 2, 1170, 84, LINE, clamp((local - 0.4) / 0.8), seed, boil);
@@ -168,22 +227,16 @@
       const fr = []; for (let k = 0; k <= 60; k++) { const a = (k / 60) * Math.PI * 2; fr.push([W / 2 + Math.cos(a) * 505 + Math.sin(k) * 6, 660 + Math.sin(a) * 425]); }
       crayonLine(fr, E.inOutCubic(inv(0.5, 1.4, local)), ACC, 8, seed, boil);
     } else if (withSubject) {
-      drawShapes(shapes, local, dur * 0.6, seed, boil, W / 2 - 220, 230, 1.1);
+      drawShapes(shapes, shapes2, local, dur, seed, boil, W / 2 - 220, 230, 1.1);
       const txt = v.kind === 'quote' ? `“${v.heading || ''}”` : (v.heading || '');
       const size = txt.length > 30 ? 92 : 120;
       wrap(txt, size, 900).forEach((ln, k) => crayonText(ln, W / 2, 860 + k * size * 1.05, size, k === 0 ? ACC : LINE, clamp((local - 0.6) * 14 / ln.length), seed + k, boil));
     } else if (v.kind === 'drawing') {
-      if (head) crayonText(head, W / 2, 300, 92, LINE, clamp(local / 0.9), seed, boil);
-      L.save(); L.translate(W / 2 - 380, 330); L.scale(1.9, 1.9);
-      const n = shapes.length, per = Math.min(0.55, (dur * 0.6) / Math.max(1, n));
-      shapes.forEach((s, k) => {
-        const t0 = 0.2 + k * per * 0.8;
-        const pLine = E.inOutCubic(inv(t0, t0 + per, local)), pFill = inv(t0 + per * 0.6, t0 + per * 0.6 + 0.7, local);
-        if (s.fill && s.closed) hatch(s.pts, pFill, s.fill, seed + k, boil);
-        if (s.stroke) crayonLine(s.pts, pLine, s.stroke, Math.max(3.2, s.sw * 0.85), seed + k, boil);
-        else if (s.fill && !s.closed) crayonLine(s.pts, pLine, s.fill, Math.max(3.2, s.sw * 0.85), seed + k, boil);
-      });
-      L.restore();
+      if (head) {
+        const hs = head.length > 26 ? 76 : 92;
+        wrap(head, hs, 960).slice(0, 2).forEach((ln, k) => crayonText(ln, W / 2, 250 + k * hs * 1.05, hs, k === 0 && /\d/.test(head) ? ACC : LINE, clamp(local / 0.9), seed + k, boil));
+      }
+      drawShapes(shapes, shapes2, local, dur, seed, boil, W / 2 - 380, 340, 1.9);
     } else if (v.kind === 'stat') {
       const target = Number(v.value) || 0, p = E.outExpo(inv(0.2, 1.6, local));
       const full = `${v.prefix || ''}${FS.fmtNum(target, target)}${v.suffix || ''}`;

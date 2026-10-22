@@ -73,10 +73,13 @@
       const inP = i === 0 ? 1 : E.outCubic(inv(s.start, s.start + 0.3, t));
       if (i > 0) flashA = Math.max(flashA, 0.18 * (1 - inv(s.start, s.start + 0.18, t)) * (t >= s.start ? 1 : 0));
       // camera: push in + drift, whip-zoom in on the cut
-      const push = 1.06 + 0.12 * clamp(local / dur);
-      const dx = (L.seedA - 0.5) * 60 * clamp(local / dur), dy = (L.seedB - 0.5) * 40 * clamp(local / dur);
+      // a different camera move per shot: push in, pull out, pan left, pan right, tilt up
+      const p = E.inOutCubic(clamp(local / dur)), move = ['in', 'out', 'left', 'right', 'up'][i % 5];
+      const push = move === 'out' ? 1.26 - 0.16 * p : 1.06 + 0.16 * p;
+      const dx = move === 'left' ? -70 * p : move === 'right' ? 70 * p : (L.seedA - 0.5) * 40 * p;
+      const dy = move === 'up' ? -90 * p : (L.seedB - 0.5) * 30 * p;
       const whip = 1 + 0.35 * (1 - inP);
-      L.layer.style.transform = `scale(${push * whip}) translate(${dx}px, ${dy}px)`;
+      L.layer.style.transform = `scale(${push * whip}) translate(${dx}px, ${dy}px) rotate(${(i % 2 ? 1 : -1) * 0.8 * p}deg)`;
       L.layer.style.filter = inP < 1 ? `blur(${(1 - inP) * 18}px)` : 'none';
       L.layer.style.opacity = String(i === 0 ? 1 : clamp(inP * 1.6));
       if (L.kind === 'video' && L.media.duration > 0) {

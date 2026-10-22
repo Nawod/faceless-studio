@@ -113,10 +113,51 @@ async function openRun(id) {
   $('#dLogs').textContent = r.logs.map(l => `${l.at.slice(11, 19)} ${l.level.padEnd(5)} ${l.msg}`).join('\n');
 }
 
-$('#runNow').onclick = async () => {
-  try { await api('/api/run', { method: 'POST', body: JSON.stringify({ upload: $('#uploadToggle').checked, style: $('#styleSel').value }) }); refresh(); }
+async function makeNow(style) {
+  try { await api('/api/run', { method: 'POST', body: JSON.stringify({ upload: $('#uploadToggle').checked, style }) }); refresh(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   catch (e) { alert(e.message); }
+}
+$('#runNow').onclick = () => makeNow($('#styleSel').value);
+
+// ---------- animation styles: the director's visual languages (+ the fast template engines) ----------
+const TEMPLATES = ['kinetic', 'collage', 'crayon', 'documentary', 'blueprint3d', 'mascot', 'globe3d', 'newsflash'];
+async function loadStyles() {
+  const [langs, c] = await Promise.all([api('/api/languages'), api('/api/config')]);
+  const mode = c.direction?.mode || 'templates';
+  document.querySelectorAll('[name=dirMode]').forEach(r => (r.checked = r.value === mode));
+  $('#stylesHint').textContent = mode === 'bespoke'
+    ? 'Each daily video is hand-animated in one of these styles. The director picks the best fit for the story from the styles in rotation and avoids repeating recent looks. Use “Make one now” to choose a style yourself.'
+    : 'Daily videos use the fast template engines (see Channel settings). You can still make a single hand-animated video in any style below.';
+  $('#gallery').innerHTML = langs.map(l => {
+    const ref = l.refs[0];
+    const thumb = ref ? `style="background-image:url('/kit-refs/thumbs/${ref}.jpg')"` : '';
+    const badge = l.recentlyUsed ? '<span class="badge">used recently</span>' : '';
+    return `<article class="sty ${l.enabled ? '' : 'disabled'}">
+      <div class="thumb ${ref ? '' : 'gen-' + l.id}" ${thumb} role="img" aria-label="${esc(l.name)} reference">${badge}</div>
+      <div class="body"><b>${esc(l.name)}</b><p>${esc(l.blurb)}</p><div class="best">Best for: ${esc(l.bestFor)}</div>
+        <div class="foot"><label class="toggle"><input type="checkbox" data-lang="${l.id}" ${l.enabled ? 'checked' : ''}> in rotation</label>
+        <button class="sm" data-make="film:${l.id}">Make one now</button></div></div></article>`;
+  }).join('');
+  const sel = $('#styleSel'), keep = sel.value;
+  sel.innerHTML = `<option value="">Auto style</option>
+    <optgroup label="Hand-animated (director)">${langs.map(l => `<option value="film:${l.id}">${esc(l.name)}</option>`).join('')}</optgroup>
+    <optgroup label="Fast templates">${TEMPLATES.map(t => `<option value="tpl:${t}">${t}</option>`).join('')}</optgroup>`;
+  sel.value = keep;
+}
+$('#gallery').onclick = e => {
+  const b = e.target.closest('[data-make]'); if (!b) return;
+  const name = b.closest('.sty').querySelector('b').textContent;
+  if (confirm(`Make a hand-animated video now in the “${name}” style? It usually takes 30–60 minutes.`)) makeNow(b.dataset.make);
 };
+async function saveDirection(mutate) {
+  const c = await api('/api/config'); c.direction ||= { mode: 'bespoke', fallback: true }; c.direction.languages ||= {};
+  mutate(c.direction);
+  const ids = [...document.querySelectorAll('[data-lang]')].map(i => i.dataset.lang);
+  if (!ids.some(id => c.direction.languages[id] !== false)) { alert('Keep at least one style in rotation'); return loadStyles(); }
+  await api('/api/config', { method: 'PUT', body: JSON.stringify(c) }); cfg = c; loadStyles();
+}
+$('#gallery').onchange = e => { const i = e.target.closest('[data-lang]'); if (i) saveDirection(d => { d.languages[i.dataset.lang] = i.checked; }); };
+document.querySelectorAll('[name=dirMode]').forEach(r => (r.onchange = () => saveDirection(d => { d.mode = r.value; })));
 
 let cfg;
 async function loadSettings() {
@@ -145,5 +186,5 @@ $('#settings').onsubmit = async e => {
   $('#saved').textContent = 'Saved ✓'; setTimeout(() => ($('#saved').textContent = ''), 2000); refresh();
 };
 
-refresh(); loadSettings();
+refresh(); loadSettings(); loadStyles();
 setInterval(() => refresh().catch(() => {}), 2000);

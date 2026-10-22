@@ -58,7 +58,7 @@
       s.style.transform = `translateY(${s._dy}px) rotate(${s._rot + jit}deg) scale(${p})`;
     });
   }
-  async function halftone(src, w, h, cell = 9) {
+  async function halftone(src, w, h, cell = 9, paper = CREAM) {
     const img = await loadImage(src); if (!img) return null;
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const g = c.getContext('2d');
@@ -66,7 +66,8 @@
     const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
     const tg = tmp.getContext('2d'); tg.drawImage(img, (w - iw) / 2, (h - ih) / 2, iw, ih);
     const d = tg.getImageData(0, 0, w, h).data;
-    g.fillStyle = CREAM; g.fillRect(0, 0, w, h); g.fillStyle = INK;
+    if (paper) { g.fillStyle = paper; g.fillRect(0, 0, w, h); }        // paper = null → dots only, the colour field shows through
+    g.fillStyle = INK;
     for (let y = 0; y < h; y += cell) for (let x = (y / cell) % 2 ? cell / 2 : 0; x < w; x += cell) {
       const i = (Math.min(h - 1, Math.floor(y)) * w + Math.min(w - 1, Math.floor(x))) * 4;
       let L = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
@@ -85,27 +86,25 @@
 
   // ---------- kinds ----------
   const pending = [];
+  // The photo is printed as a FULL-SCREEN halftone straight onto the scene's colour field (no card, no frame),
+  // and keeps moving: a slow push with stop-motion jitter. Behind stats/stickers it sits fainter.
   function photoLayer(root, v, i, big) {
     if (!v.img) return null;
-    const holder = el('div', '', root); holder.style.cssText = 'position:absolute;left:0;right:0;top:' + (big ? 240 : 330) + 'px;display:flex;justify-content:center';
-    const blob = el('div', 'blob', holder); const bc = BASE[(start + i * 3 + 2) % BASE.length];
-    blob.style.cssText += `;width:${big ? 760 : 560}px;height:${big ? 760 : 560}px;background:${bc};left:50%;top:20px;margin-left:-${big ? 330 : 230}px`;
-    const slot = el('div', '', holder); slot.style.position = 'relative';
-    const rot = (R() - 0.5) * 7;
-    const state = { holder, blob, slot, rot, ready: false, tapes: [] };
-    pending.push(halftone(v.img, big ? 760 : 600, big ? 900 : 500, big ? 10 : 9).then(c => {
+    const scene = root.parentElement;
+    const layer = el('div', '', scene); layer.style.cssText = `position:absolute;inset:-4%;opacity:${big ? 1 : 0.42};mix-blend-mode:multiply`;
+    scene.insertBefore(layer, root);
+    const state = { ready: false };
+    pending.push(halftone(v.img, 1140, 2020, big ? 13 : 15, null).then(c => {
       if (!c) return;
-      const cu = cutout(slot, c, rot); state.card = cu.card; state.tapes = cu.tapes; state.ready = true;
-      cu.tapes[0].style.cssText += ';left:-40px;top:-14px;transform:rotate(-28deg)';
-      cu.tapes[1].style.cssText += ';right:-40px;bottom:-10px;transform:rotate(-24deg)';
+      c.style.cssText = 'width:100%;height:100%;display:block'; layer.appendChild(c); state.ready = true;
     }));
-    return local => {
+    const dir = i % 2 ? 1 : -1;
+    return (local, dur = 4) => {
       if (!state.ready) return;
-      const sp = spring(local - 0.02, { freq: 1.6, zeta: 0.6 });
-      const jit = (hash(Math.floor(local * 8), i) - 0.5) * 1.2;
-      slot.style.transform = `translateY(${(1 - sp) * 900}px) rotate(${rot * sp + (1 - sp) * 25 + jit}deg)`;
-      const b = E.outBack(inv(0.15, 0.6, local));
-      blob.style.transform = `scale(${b})`;
+      const p = clamp(local / dur), wipe = E.outExpo(inv(0, 0.45, local));
+      const jit = (hash(Math.floor(local * 8), i) - 0.5) * 1.4;          // stop-motion (8 fps) wobble
+      layer.style.transform = `translateX(${dir * 30 * p + jit * 3}px) scale(${1.02 + 0.08 * p}) rotate(${jit * 0.4}deg)`;
+      layer.style.clipPath = `inset(0 ${(1 - wipe) * 100}% 0 0)`;          // printed on with a wipe
     };
   }
 
@@ -113,12 +112,12 @@
     headline(root, v) { return ransom(root, v.heading || '', 130); },
     image(root, v, i) {
       const ph = photoLayer(root, v, i, true);
-      let rs = null; if (v.heading) { const b = el('div', '', root); b.style.cssText = 'position:absolute;left:0;right:0;top:1000px;display:flex;justify-content:center'; rs = ransom(b, v.heading, 86); }
+      let rs = null; if (v.heading) { const b = el('div', '', root); b.style.cssText = 'position:absolute;left:0;right:0;top:40px;display:flex;justify-content:center'; rs = ransom(b, v.heading, 110); }
       return (l, d) => { ph?.(l, d); rs?.(l - 0.5); };
     },
     stat(root, v, i) {
       const ph = photoLayer(root, v, i, false);
-      const top = el('div', '', root); top.style.cssText = `position:absolute;left:0;right:0;top:${v.img ? 730 : 420}px;display:flex;flex-direction:column;align-items:center`;
+      const top = el('div', '', root); top.style.cssText = `position:absolute;left:0;right:0;top:420px;display:flex;flex-direction:column;align-items:center`;
       const holder = el('div', '', top), lab = el('div', 'strip', top, esc(v.label || ''));
       const target = Number(v.value) || 0;
       const num = el('div', 'ransom', holder);
@@ -127,7 +126,7 @@
         const p = E.outExpo(inv(0.2, 1.6, local)), txt = (v.prefix || '') + fmtNum(target * p, target) + (v.suffix || '');
         if (num.dataset.t !== txt) {
           num.dataset.t = txt; num.innerHTML = '';
-          [...txt].forEach((c, k) => { const s = el('span', 'ch', num, esc(c)); const r = rng(k * 31 + i); const bg = [INK, '#fff', '#FFE14D', CREAM][k % 4]; s.style.cssText += `;background:${bg};color:${bg === INK ? '#fff' : INK};font-family:${FONTS[Math.floor(r() * 3)]};font-size:${(v.img ? 120 : 170) + r() * 24}px;transform:rotate(${(r() - 0.5) * 10}deg)`; });
+          [...txt].forEach((c, k) => { const s = el('span', 'ch', num, esc(c)); const r = rng(k * 31 + i); const bg = [INK, '#fff', '#FFE14D', CREAM][k % 4]; s.style.cssText += `;background:${bg};color:${bg === INK ? '#fff' : INK};font-family:${FONTS[Math.floor(r() * 3)]};font-size:${170 + r() * 24}px;transform:rotate(${(r() - 0.5) * 10}deg)`; });
         }
         num.style.transform = `scale(${E.outBack(inv(0.1, 0.45, local))})`;
         const lp = E.outCubic(inv(0.6, 1, local)); lab.style.transform = `rotate(-2deg) translateX(${(1 - lp) * -1100}px)`;
@@ -151,8 +150,8 @@
     },
     icons(root, v, i) {
       const ph = photoLayer(root, v, i, false);
-      const head = v.heading ? (() => { const b = el('div', '', root); b.style.cssText = `position:absolute;left:0;right:0;top:${v.img ? -40 : 330}px;display:flex;justify-content:center`; return ransom(b, v.heading, 96); })() : null;
-      const row = el('div', '', root); row.style.cssText = `position:absolute;left:60px;right:60px;top:${v.img ? 420 : 640}px;display:flex;flex-wrap:wrap;justify-content:center;gap:30px`;
+      const head = v.heading ? (() => { const b = el('div', '', root); b.style.cssText = `position:absolute;left:0;right:0;top:330px;display:flex;justify-content:center`; return ransom(b, v.heading, 96); })() : null;
+      const row = el('div', '', root); row.style.cssText = `position:absolute;left:60px;right:60px;top:640px;display:flex;flex-wrap:wrap;justify-content:center;gap:30px`;
       const st = (v.emoji || []).slice(0, 6).map(e => { const s = el('span', 'sticker', row, e); s._r = (R() - 0.5) * 30; return s; });
       return local => { ph?.(local); head?.(local - 0.3); st.forEach((s, k) => { const p = E.outBack(inv(0.2 + k * 0.12, 0.5 + k * 0.12, local), 2.6); const jit = (hash(Math.floor(local * 6), k + 9) - 0.5) * 6; s.style.transform = `rotate(${s._r + jit}deg) scale(${p})`; }); };
     },
