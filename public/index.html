@@ -33,6 +33,12 @@
     <div class="live-foot"><span id="liveDetail"></span><span id="livePct" class="pct"></span></div>
   </section>
 
+  <section class="card" id="jobsCard" hidden>
+    <div class="row wrap"><h2>Task list <span class="pill" id="jCount">0</span></h2><span class="muted">your clicks wait here and run one at a time, in order</span></div>
+    <ol class="qlist" id="jobList"></ol>
+    <button class="sm" id="jobsClear" hidden>Clear failed</button>
+  </section>
+
   <section class="grid">
     <div class="card"><div class="k">Now</div><div class="v" id="nowState">—</div><div class="s" id="nowSub"></div></div>
     <div class="card"><div class="k">Next automatic run</div><div class="v" id="nextRun">—</div><div class="s">local time · daily</div></div>
@@ -40,9 +46,48 @@
     <div class="card"><div class="k">Daily quota</div><div class="v" id="totals">—</div><div class="s" id="totalsSub"></div></div>
   </section>
 
+  <section class="card" id="queueCard">
+    <div class="row wrap"><h2>Queue <span class="pill" id="qCount">0</span></h2><span class="muted">made first, in order — then ideas from the topic pool</span></div>
+    <form id="queueForm" class="qform">
+      <input name="topic" placeholder="Topic, e.g. Why octopuses have three hearts" required>
+      <input name="angle" placeholder="Angle or notes (optional)">
+      <select name="style" id="queueStyle"><option value="">Auto style</option></select>
+      <button class="primary">Add to queue</button>
+    </form>
+    <ol class="qlist" id="queueList"></ol>
+  </section>
+
+  <section class="card" id="poolCard">
+    <details id="poolBox"><summary><h2>Topic pool <span class="pill" id="pCount">0</span></h2></summary>
+      <p class="muted">Claude researches about 20 checked ideas at once and stores them here, so a video starts from a ready topic instead of searching from scratch each time. The pool refills itself when it runs low. Each idea is used once, and nothing similar to a video from the last 90 days gets in.</p>
+      <div class="row wrap gap">
+        <select id="poolFilter"><option value="new">Fresh ideas</option><option value="queued">In the queue</option><option value="used">Used</option><option value="rejected">Rejected</option></select>
+        <button id="poolResearch">Research 20 more ideas</button>
+        <span class="muted" id="poolNote"></span>
+      </div>
+      <form id="poolForm" class="qform">
+        <input name="topic" placeholder="Add your own idea to the pool" required>
+        <input name="angle" placeholder="Angle (optional)">
+        <button>Add idea</button>
+      </form>
+      <ul class="plist" id="poolList"></ul>
+    </details>
+  </section>
+
   <section class="card setup" id="setup">
     <h2>Setup checklist</h2>
     <ul id="checks"></ul>
+  </section>
+
+  <section class="card" id="fbCard">
+    <div class="row wrap"><h2>Facebook Page</h2><label class="toggle"><input type="checkbox" id="fbEnabled"> also schedule every video as a Reel</label></div>
+    <p class="muted">Each video is scheduled as a Facebook Reel in the same publish slot as YouTube. Reels must be 90 s or shorter; longer videos go to YouTube only.</p>
+    <div id="fbState"></div>
+    <div class="row gap wrap" id="fbActions"></div>
+    <details class="fbtoken"><summary class="muted">Or paste a Page access token</summary>
+      <form id="fbTokenForm" class="inline"><input name="token" placeholder="Page access token (from the Graph API Explorer)" required><button>Use token</button></form>
+      <p class="muted">A Page token made from a long-lived user token never expires; a short one expires within hours. “Connect Facebook Page” handles this for you.</p>
+    </details>
   </section>
 
   <section class="card" id="stylesCard">
@@ -58,7 +103,7 @@
 
   <section class="card">
     <div class="row"><h2>Runs</h2><span class="muted" id="topicCount"></span></div>
-    <table id="runs"><thead><tr><th>Date</th><th>Topic</th><th>Style</th><th>Length</th><th>Status</th><th>YouTube</th></tr></thead><tbody></tbody></table>
+    <table id="runs"><thead><tr><th>Date</th><th>Topic</th><th>Style</th><th>Length</th><th>Status</th><th>Scheduled</th></tr></thead><tbody></tbody></table>
   </section>
 
   <section class="card">

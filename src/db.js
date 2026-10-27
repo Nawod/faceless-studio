@@ -37,7 +37,54 @@ CREATE TABLE IF NOT EXISTS logs (
   msg          TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+-- topic pool: ideas researched in batches (or added by hand), used one per video
+CREATE TABLE IF NOT EXISTS bank (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at   TEXT NOT NULL,
+  topic        TEXT NOT NULL,
+  angle        TEXT,
+  hook         TEXT,
+  category     TEXT,
+  style        TEXT,                   -- suggested look ('' = automatic)
+  keywords     TEXT,
+  status       TEXT NOT NULL DEFAULT 'new',   -- new | queued | used | rejected
+  source       TEXT NOT NULL DEFAULT 'auto',  -- auto | manual
+  notes        TEXT,
+  run_id       TEXT,
+  used_at      TEXT
+);
+-- production queue: what to make next, in order (manual picks first, then the pool fills in)
+CREATE TABLE IF NOT EXISTS queue (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at   TEXT NOT NULL,
+  position     REAL NOT NULL,
+  bank_id      INTEGER,
+  topic        TEXT NOT NULL,
+  angle        TEXT,
+  notes        TEXT,
+  style        TEXT,                   -- '' = automatic; 'film:<language>' or 'tpl:<engine>'
+  status       TEXT NOT NULL DEFAULT 'waiting', -- waiting | running | done | failed
+  run_id       TEXT,
+  error        TEXT
+);
 `);
+try { db.exec('ALTER TABLE runs ADD COLUMN queue_id INTEGER'); } catch {}
+// task list: every action you click (make, resume, start over, upload, schedule on Facebook…) runs one at a time,
+// in click order
+db.exec(`CREATE TABLE IF NOT EXISTS jobs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at   TEXT NOT NULL,
+  kind         TEXT NOT NULL,          -- make | queue | resume | restart | upload | facebook
+  run_id       TEXT,                   -- the run it acts on (or the run it created)
+  params       TEXT,                   -- JSON
+  label        TEXT,
+  status       TEXT NOT NULL DEFAULT 'waiting',  -- waiting | running | done | failed | removed
+  error        TEXT,
+  started_at   TEXT,
+  ended_at     TEXT
+)`);
+
+try { db.exec('ALTER TABLE runs ADD COLUMN facebook_id TEXT'); } catch {}   // Facebook Page Reel id
 
 export const now = () => new Date().toISOString();
 

@@ -105,6 +105,8 @@ ${libs.map(s => `<script src="${s}"></script>`).join('\n')}
 <script src="${eng}/kit/fx.js"></script>
 </head><body><div id="stage"></div>
 <script src="film.js"></script>
+<script>/* film.js may list part files (Film.parts = ['parts/01-hook.js', …]); they load in order, before the brand layer */
+(window.Film && Film.parts || []).forEach(f => document.write('<script src="' + f + '"></scr' + 'ipt>'));</script>
 <script src="${eng}/brand.js"></script>
 <script src="${eng}/preview.js"></script>
 </body></html>`);

@@ -90,15 +90,39 @@ function allowedStyles(cfg) {
   return allowed.length ? allowed : enabled;
 }
 
-export function buildPrompt(cfg, candidates, recent, styles, banned = []) {
+// Sections 4-5 for the template engines: style choice + per-scene visual kinds (drawings, stock searches, …).
+const templateVisuals = (cfg, styles) => `4. STYLE. Pick the best visual style for this topic from: ${styles.join(', ')}.
+${styles.map(s => `   - ${s}: ${STYLE_RULES[s]} Best for: ${cfg.styles[s].bestFor}.`).join('\n')}
+5. VISUALS. For each scene choose a visual kind allowed by the style:
+${Object.entries(VISUAL_KINDS).map(([k, v]) => `   - ${k}: ${v}`).join('\n')}
+   On-screen headings must be short and add something (a number, a keyword) rather than repeat the narration. Vary kinds; don't repeat the same kind 3 times in a row.
+   SHOW, DON'T JUST TELL — the #1 reason viewers swipe away is visuals that don't match the words:
+   - Fill "subject": the main real-world thing the video is about (e.g. the animal, object, place). subject.broll = a 2-4 word stock search that returns photos of exactly it ("common wombat", not "Australia"). subject.svg = a recognisable drawing of it (rules below).
+   - The subject must be SEEN in scene 1 and in at least half of all scenes (as image, drawing or footage).
+   - Every scene needs "broll": a concrete stock search for what that scene's narration describes (2-4 words, real nouns). Every scene's visual must depict what is being said at that moment.
+   - Crayon style: EVERY scene is kind "drawing" — a different, recognisable, ANIMATED picture of what that scene says (data-anim on moving parts; svg2 second pose for animals/people/machines). svg: 8-25 elements, bold simple shapes that fill most of the 400x400 canvas, outlines in a dark colour, real-world colours; a 6-year-old must recognise it without the heading. subject.svg is drawn the same way (with data-anim and its own subject.svg2).
+   - stat: prefix/suffix ≤ 6 characters each (use label for the rest). Never use stat for a year — use timeline or headline.`;
+
+// Director mode: the animator designs every picture itself, so the plan only needs the script and one
+// "what we see" note per beat. Drawings, stock searches and template visuals (and their fix-up calls) were wasted.
+const liteVisuals = styles => `4. STYLE: set "style" to "${styles[0]}" (a hand-animator designs this film; the field is only a fallback).
+5. VISUALS — notes for the animator: every scene's visual = {"kind": "headline", "heading": what we SEE happening at that moment (≤ 15 words: the subject, the action, the setting), "broll": a 2-4 word concrete noun search}. No svg and no other fields.
+   subject = {"name": the main real thing, "broll": an exact 2-4 word search for it, "svg": ""}.
+   The subject is seen in scene 1 and in at least half of the scenes; every beat's picture shows what is being said at that moment.`;
+
+// assigned: a topic from the queue / topic pool → no topic hunting, no trend list and no past-topics list in the prompt.
+export function buildPrompt(cfg, { candidates = [], recent = [], styles, banned = [], assigned = null, lite = false }) {
   const words = Math.round(cfg.video.targetSeconds * 2.65);
+  const topicTask = assigned
+    ? `1. TOPIC (given — do not change it): "${assigned.topic}"${assigned.angle ? ` — angle: ${assigned.angle}` : ''}${assigned.hook ? `\n   Suggested hook (improve it if you can): ${assigned.hook}` : ''}${assigned.notes && assigned.notes !== assigned.hook ? `\n   Notes: ${assigned.notes}` : ''}`
+    : `1. TOPIC. Today's trend signals are below (USA + UK). About ${Math.round(cfg.niche.trendWeight * 100)}% of the time pick a topic that rides a trend AND fits the niche; otherwise pick an evergreen curiosity topic with proven Shorts appeal. It must be advertiser-friendly, factual, and NOT similar to anything in the "already covered" list (different subject — not just a new angle on the same subject).${banned.length ? `\n   Also REJECTED (too similar to past videos): ${banned.join('; ')}` : ''}`;
   return `You are the head writer and art director of a faceless YouTube Shorts channel "${cfg.channelName}".
 Audience: ${cfg.audience}. Niche: ${cfg.niche.primary}.
 Never cover: ${cfg.niche.avoid.join('; ')}.
 
-TASK: choose today's topic, research it with web search, and write a complete production plan.
+TASK: ${assigned ? 'research the given topic' : "choose today's topic, research it"} with web search, and write a complete production plan.
 
-1. TOPIC. Today's trend signals are below (USA + UK). About ${Math.round(cfg.niche.trendWeight * 100)}% of the time pick a topic that rides a trend AND fits the niche; otherwise pick an evergreen curiosity topic with proven Shorts appeal. It must be advertiser-friendly, factual, and NOT similar to anything in the "already covered" list (different subject — not just a new angle on the same subject).${banned.length ? `\n   Also REJECTED (too similar to past videos): ${banned.join('; ')}` : ''}
+${topicTask}
 2. RESEARCH. Verify every factual claim with web search; use at least 2 reputable sources. No invented numbers. If unsure, leave it out.
 3. SCRIPT. ${words - 15}-${words + 15} words total across scenes (≈${cfg.video.targetSeconds}s spoken; must be over 60 s). Rules that make Shorts retain:
    RETENTION IS EVERYTHING — viewers decide in 1.5 seconds and must want the answer until the very last line:
@@ -113,43 +137,34 @@ TASK: choose today's topic, research it with web search, and write a complete pr
    - Energetic spoken style: short punchy sentences (≤ 12 words), present tense, second person, strong verbs, one idea per sentence. No filler ("in this video", "let's dive in", "make sure to", "fascinating").
    - FAST BEATS: 14-22 scenes, each ONE short sentence of ~2-4 seconds. Every scene is a new visual — the picture must change at least every 3 seconds.
    - End: the payoff line, then a 4-6 word CTA ("Follow for more of Earth's bugs.").
-4. STYLE. Pick the best visual style for this topic from: ${styles.join(', ')}.
-${styles.map(s => `   - ${s}: ${STYLE_RULES[s]} Best for: ${cfg.styles[s].bestFor}.`).join('\n')}
-5. VISUALS. For each scene choose a visual kind allowed by the style:
-${Object.entries(VISUAL_KINDS).map(([k, v]) => `   - ${k}: ${v}`).join('\n')}
-   On-screen headings must be short and add something (a number, a keyword) rather than repeat the narration. Vary kinds; don't repeat the same kind 3 times in a row.
-   SHOW, DON'T JUST TELL — the #1 reason viewers swipe away is visuals that don't match the words:
-   - Fill "subject": the main real-world thing the video is about (e.g. the animal, object, place). subject.broll = a 2-4 word stock search that returns photos of exactly it ("common wombat", not "Australia"). subject.svg = a recognisable drawing of it (rules below).
-   - The subject must be SEEN in scene 1 and in at least half of all scenes (as image, drawing or footage).
-   - Every scene needs "broll": a concrete stock search for what that scene's narration describes (2-4 words, real nouns). Every scene's visual must depict what is being said at that moment.
-   - Crayon style: EVERY scene is kind "drawing" — a different, recognisable, ANIMATED picture of what that scene says (data-anim on moving parts; svg2 second pose for animals/people/machines). svg: 8-25 elements, bold simple shapes that fill most of the 400x400 canvas, outlines in a dark colour, real-world colours; a 6-year-old must recognise it without the heading. subject.svg is drawn the same way (with data-anim and its own subject.svg2).
-   - stat: prefix/suffix ≤ 6 characters each (use label for the rest). Never use stat for a year — use timeline or headline.
+${lite ? liteVisuals(styles) : templateVisuals(cfg, styles)}
 6. METADATA. title: ≤ 60 chars, phrased like the hook (a scenario or question the viewer wants answered, e.g. "What Happens If a Power Line Falls on Your Car?"), truthful, no ALL CAPS, no emoji spam. description: 2-3 sentences + 3-5 hashtags incl. #shorts + "Sources:" with the URLs. tags: 8-15.
    mood picks the background music feel.
-
+${assigned ? '' : `
 Already covered in the last ${cfg.variety.dedupDays} days (do NOT repeat these subjects):
 ${recent.length ? recent.map(r => `- ${r.topic} — ${r.angle}`).join('\n') : '- (nothing yet)'}
 
 Trend signals today:
 ${candidates.slice(0, 120).map(c => `- [${c.source}] ${c.title}${c.signal ? ` (${c.signal})` : ''}${c.context ? ` — ${c.context}` : ''}`).join('\n')}
-
+`}
 Return only the JSON plan.`;
 }
 
-export async function makePlan({ candidates, log, cwd }) {
+export async function makePlan({ candidates = [], log, cwd, assigned = null, lite = false }) {
   const cfg = channel();
   const recent = recentTopics(cfg.variety.dedupDays);
   const styles = allowedStyles(cfg, recent);
   const banned = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    log.info(`planning (attempt ${attempt + 1}); styles allowed: ${styles.join(', ')}`);
-    const plan = await askClaude(buildPrompt(cfg, candidates, recent, styles, banned), {
-      schema: PLAN_SCHEMA, tools: ['WebSearch', 'WebFetch'], maxTurns: 30, cwd, log, timeoutMs: 20 * 60_000,
+    log.info(`planning (attempt ${attempt + 1})${assigned ? ` — topic "${assigned.topic}"` : ''}${lite ? ' — script for the animation director' : `; styles allowed: ${styles.join(', ')}`}`);
+    const plan = await askClaude(buildPrompt(cfg, { candidates, recent, styles, banned, assigned, lite }), {
+      schema: PLAN_SCHEMA, tools: ['WebSearch', 'WebFetch'], maxTurns: 30, cwd, log, timeoutMs: 20 * 60_000, label: 'planner',
     });
     const fresh = checkFresh(plan.topic, plan.angle, plan.keywords, cfg.variety.dedupDays, cfg.variety.similarityThreshold);
     if (!styles.includes(plan.style)) plan.style = styles[0];
-    if (fresh.ok) {
-      log.info(`topic: "${plan.topic}" (${plan.style}); closest past match ${fresh.score.toFixed(2)}`);
+    if (fresh.ok || assigned) {
+      log.info(`topic: "${plan.topic}" (${lite ? 'director film' : plan.style}); closest past match ${fresh.score.toFixed(2)}`);
+      if (lite) { plan.lite = true; return normalise(plan); }   // template visuals are made only if the film falls back
       return await enforceVisuals(normalise(plan), log, cwd);
     }
     log.warn(`"${plan.topic}" too close to past "${fresh.match.topic}" (${fresh.score.toFixed(2)}); re-planning`);
@@ -193,6 +208,22 @@ export function visualProblems(plan) {
 }
 
 export const enforceVisualsForRun = (plan, log, cwd) => enforceVisuals(plan, log, cwd);
+
+/** A director-mode (lite) plan whose film failed: give it full template visuals now (only paid for when needed). */
+export async function liteToTemplate(plan, log, cwd) {
+  if (!plan.lite) return plan;
+  const cfg = channel(), styles = allowedStyles(cfg);
+  log.info('adding template visuals to the script (the animation director did not finish a film)');
+  const out = await askClaude(`This YouTube Shorts plan has a finished script; each scene's "visual.heading" is a note on what we should see. Turn it into visuals for our template engines. Keep topic, narration, facts, sources and metadata exactly the same.
+${templateVisuals(cfg, styles)}
+
+Return the full plan JSON.
+
+${JSON.stringify(plan)}`, { schema: PLAN_SCHEMA, maxTurns: 4, cwd, log, timeoutMs: 12 * 60_000, label: 'template-visuals' });
+  const merged = normalise({ ...plan, style: styles.includes(out.style) ? out.style : styles[0], subject: out.subject || plan.subject, scenes: plan.scenes.map((s, i) => ({ ...s, visual: out.scenes?.[i]?.visual || s.visual })) });
+  delete merged.lite;
+  return enforceVisuals(merged, log, cwd);
+}
 export { svgCount };
 
 const cleanSvg = s => String(s || '').replace(/<\/?svg[^>]*>/g, '').replace(/<text[\s\S]*?<\/text>/g, '').replace(/\stransform="[^"]*"/g, '');

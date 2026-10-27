@@ -104,8 +104,13 @@ barrel body, short legs and blunt nose). Characters can be stylised and cute, bu
 5. Before you finish: no script errors, every scene has something moving, captions readable and not covering the
    subject, nothing important below y 1450, the hook frame works as a thumbnail.
 
+**Work economically:** every turn re-sends your whole conversation, so keep it lean. Build the film as parts
+(`film/film.js` = shared setup ending with `Film.parts = [...]`; `film/parts/NN-name.js` = one passage each), change
+existing code with Edit rather than rewriting files, and don't Read a big file again after writing it. Render strips
+and frames only for what you changed. Don't use a full sheet as a progress check after every small edit.
+
 Write short notes in `wiki/review-log.md` (what you saw, what you changed). Only write inside this run folder:
-`film/film.js`, `film/film.css`, `wiki/*`. Don't edit `film/index.html` or `film/spec.js`.
+`film/film.js`, `film/parts/*.js`, `film/film.css`, `wiki/*`. Don't edit `film/index.html` or `film/spec.js`.
 
 ## 7 · Technical limits
 

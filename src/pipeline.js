@@ -5,7 +5,8 @@ import { channel, RUNS } from './config.js';
 import { db, now, updateRun, getRun, kvGet, kvSet } from './db.js';
 import { makeLogger } from './log.js';
 import { discover } from './discover.js';
-import { makePlan, extendScript, repairDrawings } from './planner.js';
+import { makePlan, extendScript, repairDrawings, liteToTemplate } from './planner.js';
+import { ensureBank, pickIdea, markIdea, nextQueued, setQueueStatus } from './topics.js';
 import { recordTopic, checkFresh } from './dedup.js';
 import { pickVoice, narrate, sceneTimings, makeMusicAndSfx, mixAudio } from './audio.js';
 import { fetchMedia, stockAvailability } from './assets.js';
@@ -13,7 +14,9 @@ import { composeSpec, writeComp, sfxEvents } from './compose.js';
 import { reviewStills } from './qa.js';
 import { renderVideo, mux } from './render.js';
 import { directFilm } from './director.js';
+import { usage } from './claude.js';
 import { uploadVideo, nextFreeSlot, isConnected } from './youtube.js';
+import { uploadReel, fbConnected } from './facebook.js';
 
 const VOICE_DELAY = 0.15, TAIL = 2.2;   // tail leaves room for the brand end card
 
@@ -24,14 +27,15 @@ export function newRunId() {
 
 // Stages in order, with rough share of the total time (for the dashboard progress bar).
 export const STAGES = [
-  { id: 'discover', label: 'Find trends', weight: 3 },
+  { id: 'topic', label: 'Pick topic', weight: 3 },
   { id: 'plan', label: 'Research & script', weight: 24 },
   { id: 'voice', label: 'Voiceover', weight: 6 },
   { id: 'direct', label: 'Animate', weight: 20 },
   { id: 'media', label: 'Footage', weight: 7 },
   { id: 'qa', label: 'Quality check', weight: 10 },
   { id: 'render', label: 'Render & mix', weight: 44 },
-  { id: 'upload', label: 'Upload', weight: 6 },
+  { id: 'upload', label: 'YouTube', weight: 6 },
+  { id: 'facebook', label: 'Facebook', weight: 4 },
 ];
 
 // Live progress for the dashboard (one run at a time, so one key).
@@ -72,7 +76,9 @@ function takeLock(runId) {
 }
 const releaseLock = runId => { clearInterval(heartbeat); heartbeat = null; const l = kvGet('lock'); if (l?.runId === runId) kvSet('lock', null); };
 
-export async function runPipeline({ runId = newRunId(), upload, planFile, style, language, onStage, forceUpload = false } = {}) {
+// only: 'facebook' publishes an already-rendered video to the Facebook Page alone (YouTube is left as it is)
+// queueId: make that queue item now (otherwise the queue head, then the topic pool, is used automatically)
+export async function runPipeline({ runId = newRunId(), upload, planFile, style, language, onStage, forceUpload = false, only, queueId } = {}) {
   const cfg = channel();
   const dir = path.join(RUNS, runId);
   fs.mkdirSync(dir, { recursive: true });
@@ -93,14 +99,49 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
   updateRun(runId, { status: 'running', error: null });
   upload ??= cfg.youtube.autoUpload;
   takeLock(runId);
+  usage.reset();
   if (cancelRequested(runId)) kvSet('cancel', null);
   kvSet('progress', { runId, done: [...st.done], startedAt: Date.now(), at: Date.now() });
+  // Which topic: a queue item (your picks, in order) is claimed right away so its style choice applies to this run.
+  // (A topic-pool idea is picked in the 'topic' stage, after the pool has been topped up.)
+  if (!st.assigned && !st.plan && !planFile) {
+    const q = queueId ? db.prepare('SELECT * FROM queue WHERE id = ?').get(queueId) : (style || language ? null : nextQueued());
+    if (q) {
+      st.assigned = { topic: q.topic, angle: q.angle, notes: q.notes, style: q.style || '', bankId: q.bank_id, queueId: q.id };
+      setQueueStatus(q.id, 'running', { runId }); updateRun(runId, { queue_id: q.id, topic: q.topic });
+      log.info(`queued topic: "${q.topic}"${q.style ? ` (style ${q.style})` : ''}`);
+    }
+  }
+  const qs = st.assigned?.style || '';
+  if (qs.startsWith('film:') && !style) language ||= qs.slice(5);
+  if (qs.startsWith('tpl:') && !language) style ||= qs.slice(4);
   // bespoke = an agent animator hand-builds every video (director mode); the template engines are the fallback
   // a style picked in the dashboard decides: a director language forces director mode, a template style forces templates
   if (language) st.language = language;
   const bespoke = !style && (!!st.language || (cfg.direction?.mode || 'templates') === 'bespoke');
+  // Claude usage of this video, summed over every attempt/resume (also when an attempt fails or pauses)
+  const addUsage = () => {
+    const u = usage.total(); usage.reset();
+    st.usage = { usd: +((st.usage?.usd || 0) + u.usd).toFixed(2), tokens: (st.usage?.tokens || 0) + u.tokens, out: (st.usage?.out || 0) + u.out };
+  };
   try {
-    await stage('discover', async () => { st.candidates = planFile ? [] : await discover(log); });
+    // Topic: the queue item claimed above, else the best idea from the topic pool (researched 20 at a time and
+    // refilled in the background when it runs low) — so the per-video trend scan and topic hunt are skipped.
+    await stage('topic', async () => {
+      if (planFile || st.plan || st.assigned) return;
+      setProgress({ detail: 'Taking the next idea from the topic pool (researching a new batch if it is empty)' });
+      try { await ensureBank(log, { cwd: dir }); } catch (e) { if (e.limit) throw e; log.warn(`topic research failed: ${e.message}`); }
+      const b = pickIdea();
+      if (b) {
+        st.assigned = { topic: b.topic, angle: b.angle, hook: b.hook, notes: b.notes, bankId: b.id };
+        markIdea(b.id, 'queued', runId);
+        updateRun(runId, { topic: b.topic });
+        log.info(`topic from the pool: "${b.topic}" (${b.category || 'general'})`);
+      } else {
+        log.warn('the topic pool is empty — the planner picks a topic from today\'s trends');
+        st.candidates = await discover(log);
+      }
+    });
 
     await stage('plan', async () => {
       if (planFile) {
@@ -108,8 +149,9 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
         const fresh = checkFresh(st.plan.topic, st.plan.angle, st.plan.keywords, cfg.variety.dedupDays, cfg.variety.similarityThreshold);
         if (!fresh.ok) log.warn(`supplied plan is close to past topic "${fresh.match.topic}" (${fresh.score.toFixed(2)})`);
       } else {
-        setProgress({ detail: 'Claude is choosing a topic and fact-checking it with web search — usually 3–8 min' });
-        st.plan = await makePlan({ candidates: st.candidates, log, cwd: dir });
+        setProgress({ detail: st.assigned ? `Claude is researching "${st.assigned.topic}" and writing the script — usually 3–6 min` : 'Claude is choosing a topic and fact-checking it with web search — usually 3–8 min' });
+        st.plan = await makePlan({ candidates: st.candidates || [], log, cwd: dir, assigned: st.assigned, lite: bespoke });
+        if (st.assigned?.bankId) markIdea(st.assigned.bankId, 'used', runId);
         // Not enough real stock of the subject? Draw it instead of filling the video with wrong photos.
         const avail = bespoke ? null : await stockAvailability(st.plan, log);
         if (avail && !style) {
@@ -173,11 +215,13 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
         updateRun(runId, { style: f.language || 'bespoke' });
         log.info(`bespoke film ready — ${f.language || 'unnamed language'} (review ${f.score ?? '?'}/10 after ${f.rounds ?? '?'} round(s))`);
       } catch (e) {
-        if (e.cancelled) throw e;
+        if (e.cancelled || e.limit) throw e;
         st.film = { ok: false, error: e.message };
-        log.warn(`director mode failed (${e.message}) — using the ${st.plan.style} template engine`);
-        updateRun(runId, { style: st.plan.style });
         if (cfg.direction?.fallback === false) throw e;
+        log.warn(`director mode failed (${e.message}) — falling back to a template engine`);
+        st.plan = await liteToTemplate(st.plan, log, dir);   // a script-only plan gets template visuals now
+        fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(st.plan, null, 2));
+        updateRun(runId, { style: st.plan.style });
       }
     });
 
@@ -236,13 +280,26 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       updateRun(runId, { video_path: st.video, duration: spec.duration });
     });
 
-    await stage('upload', async () => {
-      if (!upload) { log.info('upload disabled for this run — video ready in the dashboard'); return; }
-      if (st.held && !forceUpload) { log.warn('not uploading: held for review (use "Upload & schedule" in the dashboard to publish it anyway)'); return; }
-      if (!isConnected()) throw new Error('YouTube is not connected');
+    // Publishing: one slot per video, shared by YouTube and the Facebook Page; each platform is skipped when not connected.
+    const publishGate = () => {
+      if (!upload) { log.info('upload disabled for this run — video ready in the dashboard'); return false; }
+      if (st.held && !forceUpload) { log.warn('not uploading: held for review (use "Upload & schedule" in the dashboard to publish it anyway)'); return false; }
+      const fbOn = cfg.facebook?.enabled !== false && fbConnected();
+      if (!isConnected() && !fbOn) throw new Error('Neither YouTube nor a Facebook Page is connected (see Setup)');
+      // a video already scheduled on YouTube keeps that slot on Facebook too (if it's still ahead)
+      const yt = st.youtube?.publishAt && new Date(st.youtube.publishAt).getTime() > Date.now() + 20 * 60_000 ? st.youtube.publishAt : null;
+      // a slot picked by an earlier attempt that has since passed is replaced by the next free one
+      if (st.publishAt && new Date(st.publishAt).getTime() < Date.now() + 20 * 60_000 && !st.youtube) st.publishAt = null;
+      st.publishAt ||= yt || nextFreeSlot(cfg.schedule);
+      return true;
+    };
+
+    if (only !== 'facebook') await stage('upload', async () => {
+      if (!publishGate()) return;
+      if (!isConnected()) { log.warn('YouTube is not connected — skipping YouTube for this video'); return; }
       setProgress({ detail: 'Uploading to YouTube and scheduling' });
       const p = st.plan;
-      const publishAt = nextFreeSlot(cfg.schedule);
+      const publishAt = st.publishAt;
       const src = (p.sources || []).filter(s => s.url).map(s => `• ${s.title || ''} ${s.url}`.trim()).slice(0, 6).join('\n');
       const description = [p.description.replace(/\s*Sources:[\s\S]*$/i, '').trim(), src ? `\nSources:\n${src}` : '', st.credits?.length ? `\nStock footage — ${st.credits.slice(0, 5).join(', ')}` : '', '\nVoice and animation are AI-assisted; facts checked against the sources above.'].join('\n');
       const tags = [...new Set([...(p.tags || []), ...cfg.youtube.defaultTags])].slice(0, 20);
@@ -252,21 +309,59 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       updateRun(runId, { youtube_id: id, publish_at: publishAt });
     });
 
+    await stage('facebook', async () => {
+      if (cfg.facebook?.enabled === false) return;
+      if (!publishGate()) return;
+      if (!fbConnected()) { log.warn('Facebook Page is not connected — skipping Facebook for this video'); return; }
+      if (st.voice?.total > 90) { log.warn(`video is ${st.voice.total.toFixed(0)} s; Facebook Reels allow at most 90 s — skipping Facebook`); return; }
+      setProgress({ detail: 'Uploading the Reel to your Facebook Page and scheduling it' });
+      const p = st.plan;
+      const tags = [...new Set([...(p.tags || []).slice(0, 5), ...(cfg.facebook?.hashtags || [])])].map(t => '#' + t.replace(/[^\p{L}\p{N}]/gu, '')).join(' ');
+      const src = (p.sources || []).filter(s => s.url).slice(0, 4).map(s => `• ${s.url}`).join('\n');
+      const body = p.description.replace(/\s*Sources:[\s\S]*$/i, '').replace(/#\w+/g, '').trim();
+      const credits = st.credits?.length ? `\n\nStock footage: ${st.credits.slice(0, 5).join('; ')}` : '';
+      const description = `${p.title}\n\n${body}${src ? `\n\nSources:\n${src}` : ''}${credits}\n\nVoice and animation are AI-assisted; facts checked against the sources above.\n\n${tags}`;
+      const r = await uploadReel(st.video, { title: p.title, description, publishAt: st.publishAt }, log);
+      st.facebookPost = r;
+      updateRun(runId, { facebook_id: r.id, publish_at: st.youtube?.publishAt || r.publishAt });
+    });
+
+    addUsage();
+    log.info(`Claude usage for this video: ${(st.usage.tokens / 1e6).toFixed(1)}M context + ${(st.usage.out / 1e3).toFixed(0)}k output tokens (≈$${st.usage.usd} at API prices; on your subscription this counts against the usage limit)`);
     if (!st.recorded) { recordTopic(runId, st.plan); st.recorded = true; save(); }
-    const held = st.held && !st.youtube;
-    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, film: st.film, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
+    setQueueStatus(st.assigned?.queueId, 'done', { runId });
+    const held = st.held && !st.youtube && !st.facebookPost;
+    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, film: st.film, usage: st.usage, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
     log.info('✔ run complete');
     return getRun(runId);
   } catch (e) {
     if (e.cancelled) { log.warn('run cancelled — resume it later or start over'); updateRun(runId, { status: 'cancelled', error: 'Cancelled by you. Resume continues from the last completed stage.' }); }
+    else if (e.limit) {
+      // Claude subscription usage limit: pause; the daily worker / scheduler resumes this run after the reset
+      kvSet('claudeLimitUntil', e.resetAt);
+      const at = new Date(e.resetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      log.warn(`paused: Claude usage limit reached — resumes after ${at}`);
+      updateRun(runId, { status: 'interrupted', error: `Paused: your Claude usage limit was reached. It resumes automatically after ${at} (or press Resume then).` });
+    }
     else { log.error(e.stack || e.message); updateRun(runId, { status: 'failed', error: String(e.message).slice(0, 2000) }); }
+    // a queue item that is paused, cancelled or failed once goes back to waiting (so a glitch doesn't lose it);
+    // a second failure leaves it marked failed in the queue for you to retry or remove
+    if (st.assigned?.queueId) {
+      const tries = e.limit || e.cancelled ? 0 : (st.queueTries = (st.queueTries || 0) + 1);
+      setQueueStatus(st.assigned.queueId, tries < 2 ? 'waiting' : 'failed', { runId, error: e.limit || e.cancelled ? null : String(e.message).slice(0, 300) });
+    }
     throw e;
-  } finally { save(); releaseLock(runId); kvSet('progress', null); if (cancelRequested(runId)) kvSet('cancel', null); }
+  } finally { addUsage(); save(); releaseLock(runId); kvSet('progress', null); if (cancelRequested(runId)) kvSet('cancel', null); }
 }
 
 /** Forget all completed stages so the next start redoes everything (new topic). */
 export function resetRun(runId) {
-  fs.rmSync(path.join(RUNS, runId, 'state.json'), { force: true });
+  // "Start over" means a new topic: the old queue item goes back in the queue, a pool idea is set aside as used
+  const sf = path.join(RUNS, runId, 'state.json');
+  const st = fs.existsSync(sf) ? JSON.parse(fs.readFileSync(sf, 'utf8')) : {};
+  if (st.assigned?.queueId) setQueueStatus(st.assigned.queueId, 'waiting', {});
+  else if (st.assigned?.bankId) markIdea(st.assigned.bankId, 'rejected');
+  fs.rmSync(sf, { force: true });
   updateRun(runId, { stage: null, topic: null, style: null, title: null, error: null });
 }
 

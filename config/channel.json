@@ -17,7 +17,18 @@
       "celebrity gossip and rumours",
       "anything that cannot be backed by at least two reputable sources"
     ],
-    "trendWeight": 0.4
+    "trendWeight": 0.4,
+    "categories": [
+      "bizarre animals",
+      "plants and fungi",
+      "the human body",
+      "physics and everyday science",
+      "space and astronomy",
+      "Earth, weather and oceans",
+      "strange places",
+      "history's weird coincidences",
+      "everyday things that make no sense"
+    ]
   },
   "video": {
     "targetSeconds": 68,
@@ -125,5 +136,21 @@
       "paper-cutout": true,
       "generative-nature": true
     }
+  },
+  "facebook": {
+    "enabled": true,
+    "hashtags": [
+      "earthhasbugs",
+      "science",
+      "facts",
+      "nature",
+      "didyouknow"
+    ],
+    "note": "Each video is also scheduled as a Reel on the connected Facebook Page, in the same slot as YouTube (Reels allow 3-90 s)."
+  },
+  "topics": {
+    "batchSize": 20,
+    "bankMin": 8,
+    "note": "Ideas are researched 20 at a time (one cheap Sonnet call) and stored in the topic pool; each video takes one. The pool refills when fewer than bankMin fresh ideas remain."
   }
 }

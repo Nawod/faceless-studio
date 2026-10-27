@@ -108,3 +108,23 @@ If today's scheduled run was interrupted, the scheduler resumes it automatically
 | `node src/preview.js <style>` + `node src/tools/stills.js …` | preview engines without Claude or TTS |
 
 Runs live in `data/runs/<id>/` (plan, voice, stills, QA sheet, `final.mp4`).
+
+## Facebook Page (Reels)
+
+Every video can also be scheduled as a **Reel** on your Facebook Page, in the same publish slot as YouTube. Facebook allows 3–90 s per Reel (longer videos go to YouTube only). Uploads use the Graph API Reels endpoint (`start` → upload → `finish` with `video_state=SCHEDULED`), and every Reel is labelled AI-generated.
+
+One-time setup (you can reuse the Meta app you made for Silver Health Guide):
+1. Go to https://developers.facebook.com → **My Apps**. Open your existing app, or **Create app** with the use case **"Manage everything on your Page"**.
+2. In **Facebook Login for Business → Settings → Valid OAuth Redirect URIs**, add `http://localhost:3020/fb/callback`.
+3. Put the app's ID and secret in `.env` as `FB_APP_ID=` and `FB_APP_SECRET=`, then restart the dashboard.
+4. In the dashboard's **Facebook Page** card, click **Connect Facebook Page**, log in, and tick the Earth Has Bugs Page. The app keeps a Page token that doesn't expire.
+
+Backup option: paste a Page access token from the Graph API Explorer under "Or paste a Page access token".
+Turn Facebook off with the card's checkbox. Videos already on YouTube get a **Schedule on Facebook** button in the Runs list.
+
+## Queue and topic pool
+
+- **Queue:** type a topic (optionally an angle and a style) to have it made next. Queued topics are made first, in order. You can reorder them, make one now, or remove them. A failed item goes back into the queue once, then stays marked "failed" with a Retry button.
+- **Topic pool:** Claude researches about 20 checked ideas in one cheap Sonnet call, using today's US/UK trend signals plus evergreen formats. Each automatic video takes the best fresh idea, rotating categories. The pool refills itself in the background when fewer than `topics.bankMin` ideas remain. You can also click **Research 20 more ideas**, add your own, queue one, or reject one.
+- Nothing too close to a video from the last 90 days gets in, and the same topic can't be queued twice.
+- **Savings:** the trend scan and topic hunt now run once per 20 videos instead of once per video. In director mode the planner writes only the script and a one-line note per beat on what we see; template visuals are made only if a film falls back to the templates.
