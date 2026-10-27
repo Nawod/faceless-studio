@@ -163,5 +163,9 @@
       "didyouknow"
     ],
     "note": "Each video is sent to your TikTok inbox as a draft; open the notification in TikTok, paste the caption shown in the dashboard and post (around the same slot as YouTube)."
+  },
+  "publishing": {
+    "parallel": 3,
+    "note": "How many upload tasks (YouTube / Facebook / TikTok) may run at the same time. They also run while a video is being made."
   }
 }

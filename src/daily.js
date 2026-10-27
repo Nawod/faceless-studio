@@ -2,6 +2,7 @@
 //   node src/daily.js [--no-upload] [--force] [--plan file.json] [--style crayon] [--resume RUN_ID]
 import { runPipeline, todayStatus, reconcileStaleRuns, lockOwnerAlive } from './pipeline.js';
 import { kvGet } from './db.js';
+import { channel } from './config.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MAX_LIMIT_WAIT = 6 * 3600_000;   // the task may run 10 h; wait out a usage-limit reset up to 6 h
@@ -25,6 +26,7 @@ try {
   // Each run (21:15, and the 23:45 catch-up) gets its own budget of attempts, so a bad first run can't
   // use up the retry. Stops as soon as today's quota of finished videos is met.
   console.log(`\n=== daily run ${new Date().toLocaleString()} ===`);
+  if (channel().schedule.enabled === false) { console.log('automatic daily videos are switched off in the dashboard — nothing to do'); process.exit(0); }
   let attempts = 0;
   const budget = todayStatus().target + 3;
   for (let guard = 0; guard < budget + 2; guard++) {

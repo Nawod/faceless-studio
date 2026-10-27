@@ -109,15 +109,16 @@ export async function uploadReel(file, { description, title, publishAt }, log) {
   const page = fbPage();
   if (!page?.token) throw new Error('Facebook Page is not connected');
   const size = fs.statSync(file).size;
-  let at = new Date(publishAt || Date.now()).getTime();
-  if (at < Date.now() + 15 * 60_000) at = Date.now() + 20 * 60_000;
+  // no publishAt = the video's shared publish time has passed → publish now (Facebook schedules need ≥ 10 min ahead)
+  const now = !publishAt || new Date(publishAt).getTime() < Date.now() + 15 * 60_000;
+  let at = now ? Date.now() : new Date(publishAt).getTime();
   if (at > Date.now() + 28 * 86400_000) throw new Error('publish time is more than 28 days ahead (Facebook allows 29)');
 
   const start = await graph(`/${page.id}/video_reels`, { method: 'POST', params: { upload_phase: 'start' }, token: page.token });
   log?.info(`facebook: uploading ${(size / 1e6).toFixed(1)} MB as a Reel to "${page.name}"…`);
   await ruploadFile(file, size, start.video_id, page.token, log);
 
-  const params = { video_id: start.video_id, video_state: 'SCHEDULED', scheduled_publish_time: String(Math.floor(at / 1000)), description: description.slice(0, 2200), title: (title || '').slice(0, 255), is_ai_generated: 'true' };
+  const params = { video_id: start.video_id, ...(now ? { video_state: 'PUBLISHED' } : { video_state: 'SCHEDULED', scheduled_publish_time: String(Math.floor(at / 1000)) }), description: description.slice(0, 2200), title: (title || '').slice(0, 255), is_ai_generated: 'true' };
   try { await graph(`/${page.id}/video_reels`, { method: 'POST', params: { ...params, upload_phase: 'finish' }, token: page.token }); }
   catch (e) {
     if (!/upload_phase|param/i.test(e.message)) throw e;
@@ -132,6 +133,6 @@ export async function uploadReel(file, { description, title, publishAt }, log) {
     if (['ready', 'upload_complete', 'published'].includes(s.video_status) || pub === 'complete' || s.publishing_phase?.publish_status === 'scheduled') break;
   }
   const publishIso = new Date(at).toISOString();
-  log?.info(`facebook: Reel ${start.video_id} scheduled for ${publishIso}`);
+  log?.info(`facebook: Reel ${start.video_id} ${now ? 'published now' : `scheduled for ${publishIso}`}`);
   return { id: start.video_id, publishAt: publishIso };
 }

@@ -9,6 +9,7 @@ import { db, getRun, kvGet, kvSet } from './db.js';
 import { runPipeline, todayStatus, newRunId, reconcileStaleRuns, lockOwnerAlive, STAGES, getProgress, requestCancel, resetRun } from './pipeline.js';
 import { authUrl, exchangeCode, isConnected, channelInfo, nextFreeSlot } from './youtube.js';
 import { recentTopics } from './dedup.js';
+import { publishRun } from './publish.js';
 import { addIdea, generateIdeas, enqueue, listQueue, dequeue, moveQueued, retryQueued, bankCount, markIdea } from './topics.js';
 import { makeLogger } from './log.js';
 import { LANGUAGES, byId, rotationChoices } from './languages.js';
@@ -58,6 +59,9 @@ function finishJob(id, status, error = null) {
   if (id) db.prepare('UPDATE jobs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(status, error ? String(error).slice(0, 400) : null, new Date().toISOString(), id);
 }
 // a task left "running" by a dashboard that was closed mid-run: its run is now "interrupted" (Resume it from Runs)
+// tasks left "running" by a dashboard that was closed: an upload is simply tried again; a production run is now
+// "interrupted" (Resume it from Runs)
+db.prepare("UPDATE jobs SET status = 'waiting', started_at = NULL WHERE status = 'running' AND kind IN ('upload','facebook','tiktok','publish')").run();
 db.prepare("UPDATE jobs SET status = 'done', error = 'the dashboard was closed while it ran', ended_at = ? WHERE status = 'running'").run(new Date().toISOString());
 
 const titleOf = runId => { const r = getRun(runId); return r?.title || r?.topic || runId; };
@@ -65,7 +69,7 @@ function jobLabel(kind, p) {
   const style = p.style ? ` · ${p.style.startsWith('film:') ? (byId(p.style.slice(5))?.name || p.style) : p.style.slice(4)}` : '';
   if (kind === 'make') return `New video${style || ' · auto style'}`;
   if (kind === 'queue') return `Queued topic: ${db.prepare('SELECT topic FROM queue WHERE id = ?').get(p.queueId)?.topic || '?'}`;
-  return `${{ resume: 'Resume', restart: 'Start over', upload: 'Upload to YouTube', facebook: 'Schedule on Facebook', tiktok: 'Send to TikTok drafts' }[kind]}: ${titleOf(p.runId)}`;
+  return `${{ resume: 'Resume', restart: 'Start over', upload: 'Upload to YouTube', facebook: 'Schedule on Facebook', tiktok: 'Send to TikTok drafts', publish: 'Resume publishing' }[kind]}: ${titleOf(p.runId)}`;
 }
 
 /** Add a task. Returns { jobId, position } — position 0 = it starts right away. */
@@ -74,12 +78,14 @@ function addJob(kind, params = {}) {
     ? db.prepare("SELECT id FROM jobs WHERE status = 'waiting' AND kind = ? AND run_id = ?").get(kind, params.runId)
     : params.queueId ? db.prepare("SELECT id FROM jobs WHERE status = 'waiting' AND kind = 'queue' AND json_extract(params, '$.queueId') = ?").get(params.queueId) : null;
   if (dup) { const e = new Error('that task is already waiting in the task list'); e.status = 409; throw e; }
-  if (params.runId && ['resume', 'restart'].includes(kind) && (current?.runId === params.runId || (lockOwnerAlive() && kvGet('lock').runId === params.runId))) {
+  if (params.runId && ['resume', 'restart'].includes(kind) && (producingRun() === params.runId)) {
     const e = new Error('that video is being made right now'); e.status = 409; throw e;
   }
   const id = Number(db.prepare('INSERT INTO jobs (created_at, kind, run_id, params, label) VALUES (?, ?, ?, ?, ?)')
     .run(new Date().toISOString(), kind, params.runId || null, JSON.stringify(params), jobLabel(kind, params)).lastInsertRowid);
-  const ahead = db.prepare("SELECT COUNT(*) n FROM jobs WHERE status = 'waiting' AND id < ?").get(id).n + (current || lockOwnerAlive() ? 1 : 0);
+  const pub = PUBLISH_KINDS.includes(kind);
+  const waitingAhead = db.prepare(`SELECT COUNT(*) n FROM jobs WHERE status = 'waiting' AND id < ? AND kind ${pub ? '' : 'NOT'} IN ('upload','facebook','tiktok','publish')`).get(id).n;
+  const ahead = pub ? Math.max(0, waitingAhead + publishing.size - publishSlots() + 1) : waitingAhead + (current || lockOwnerAlive() ? 1 : 0);
   setTimeout(pump, 0);
   return { jobId: id, position: ahead };
 }
@@ -87,8 +93,6 @@ function addJob(kind, params = {}) {
 // Turn a task into a pipeline start. Checks run here (at start time), since things may have changed while it waited.
 function runJob(j) {
   const p = JSON.parse(j.params || '{}');
-  const stFile = id => path.join(RUNS, id, 'state.json');
-  const readSt = id => (fs.existsSync(stFile(id)) ? JSON.parse(fs.readFileSync(stFile(id), 'utf8')) : { done: [] });
   if (j.kind === 'make') return start({ upload: p.upload, language: p.style?.startsWith('film:') ? p.style.slice(5) : undefined, style: p.style?.startsWith('tpl:') ? p.style.slice(4) : undefined }, j.id);
   if (j.kind === 'queue') {
     const q = db.prepare('SELECT * FROM queue WHERE id = ?').get(p.queueId);
@@ -99,47 +103,54 @@ function runJob(j) {
   if (!r) throw new Error('that run no longer exists');
   if (j.kind === 'resume') return start({ runId: r.id, upload: p.upload }, j.id);
   if (j.kind === 'restart') { resetRun(r.id); return start({ runId: r.id, upload: p.upload }, j.id); }
-  if (j.kind === 'upload') {
-    const fbWanted = channel().facebook?.enabled !== false && fbConnected();
-    if (!['done', 'held'].includes(r.status) || (r.youtube_id && (r.facebook_id || !fbWanted))) throw new Error('nothing left to upload for this video');
-    if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
-    const st = readSt(r.id);   // re-open only the publishing stages a platform doesn't have yet
-    st.done = st.done.filter(s => !(s === 'upload' && !r.youtube_id) && !(s === 'facebook' && !r.facebook_id)); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
-    // a held video's "Upload anyway" publishes everywhere; otherwise this is the YouTube button
-    return start({ runId: r.id, upload: true, forceUpload: true, publishOnly: true, only: r.status === 'held' ? undefined : 'youtube' }, j.id);
-  }
-  if (j.kind === 'tiktok') {
-    if (r.tiktok_id) throw new Error('already sent to TikTok');
-    if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
-    if (!ttConnected()) throw new Error('TikTok is not connected');
-    const st = readSt(r.id);
-    st.video ||= path.join(RUNS, r.id, 'final.mp4');
-    st.done = st.done.filter(s => s !== 'tiktok'); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
-    return start({ runId: r.id, upload: true, forceUpload: true, only: 'tiktok', publishOnly: true }, j.id);
-  }
-  if (j.kind === 'facebook') {
-    if (r.facebook_id) throw new Error('already scheduled on Facebook');
-    if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
-    if (!fbConnected()) throw new Error('the Facebook Page is not connected');
-    const st = readSt(r.id);
-    st.video ||= path.join(RUNS, r.id, 'final.mp4');
-    st.done = st.done.filter(s => s !== 'facebook'); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
-    return start({ runId: r.id, upload: true, forceUpload: true, only: 'facebook', publishOnly: true }, j.id);
-  }
-  throw new Error(`unknown task ${j.kind}`);
+  throw new Error(`not a production task: ${j.kind}`);
 }
 
-/** Start the oldest waiting task when nothing is running (also after the daily worker releases the lock). */
+// Two lanes. Production (make / queue / resume / start over) runs one video at a time under the production lock.
+// Publishing (YouTube / Facebook / TikTok) is network work with no AI, so up to `publishing.parallel` (3) uploads run
+// side by side — also while a video is being made. Within each lane tasks start in click order. A video is never
+// published while it is being produced, and never by two tasks at once.
+const PUBLISH_KINDS = ['upload', 'facebook', 'tiktok', 'publish'];   // 'publish' = Resume of a finished video
+const publishing = new Map();   // jobId → runId
+const publishSlots = () => Math.max(1, Math.min(5, channel().publishing?.parallel ?? 3));
+const producingRun = () => current?.runId || (lockOwnerAlive() ? kvGet('lock').runId : null);
+
+function platformsFor(j, r) {
+  if (j.kind === 'facebook') return ['facebook'];
+  if (j.kind === 'tiktok') return ['tiktok'];
+  if (j.kind === 'publish') return ['youtube', 'facebook', 'tiktok'];   // finish whatever platforms are still missing
+  return r?.status === 'held' ? ['youtube', 'facebook', 'tiktok'] : ['youtube'];   // "Upload anyway" on a held video → everywhere
+}
+function startPublish(j) {
+  const p = JSON.parse(j.params || '{}'), r = getRun(p.runId);
+  if (!r) throw new Error('that run no longer exists');
+  if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
+  db.prepare("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?").run(new Date().toISOString(), j.id);
+  publishing.set(j.id, r.id);
+  publishRun(r.id, platformsFor(j, r))
+    .then(done => finishJob(j.id, 'done', done.length ? null : 'nothing new to publish'), e => finishJob(j.id, 'failed', e.message))
+    .finally(() => { publishing.delete(j.id); setTimeout(pump, 200); });
+}
+
+/** Start every waiting task that may run now (called after each click, each finished task, and every 5 s). */
 function pump() {
-  if (current || lockOwnerAlive()) return;
-  for (let guard = 0; guard < 50; guard++) {
-    const j = db.prepare("SELECT * FROM jobs WHERE status = 'waiting' ORDER BY id LIMIT 1").get();
-    if (!j) return;
+  const waiting = db.prepare("SELECT * FROM jobs WHERE status = 'waiting' ORDER BY id").all();
+  let productionBlocked = !!(current || lockOwnerAlive());
+  for (const j of waiting) {
+    const p = JSON.parse(j.params || '{}');
+    if (PUBLISH_KINDS.includes(j.kind)) {
+      if (publishing.size >= publishSlots()) continue;
+      if (p.runId === producingRun() || [...publishing.values()].includes(p.runId)) continue;   // that video is busy: wait
+      try { startPublish(j); } catch (e) { finishJob(j.id, 'failed', e.message); }
+      continue;
+    }
+    if (productionBlocked) continue;
+    if (p.runId && [...publishing.values()].includes(p.runId)) continue;   // its video is being uploaded right now
     db.prepare("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?").run(new Date().toISOString(), j.id);
     try {
       const runId = runJob(j);
       db.prepare('UPDATE jobs SET run_id = ? WHERE id = ?').run(runId, j.id);
-      return;
+      productionBlocked = true;
     } catch (e) { finishJob(j.id, 'failed', e.message); }   // skip it and try the next task
   }
 }
@@ -171,10 +182,11 @@ app.get('/api/status', async (req, res) => {
   res.json({
     running: runId ? { runId, stage: r?.stage || current?.stage, title: r?.title, topic: r?.topic, style: r?.style, external: !current, progress: prog?.runId === runId ? prog : null, cancelling: kvGet('cancel') === runId } : null,
     stages: STAGES,
-    nextRun: nextRunLocal(), nextPublish: nextFreeSlot(cfg.schedule), today: (({ target, made, attempts }) => ({ target, made, attempts }))(todayStatus(cfg)),
+    autoRuns: cfg.schedule.enabled !== false, nextRun: nextRunLocal(), nextPublish: nextFreeSlot(cfg.schedule), today: (({ target, made, attempts }) => ({ target, made, attempts }))(todayStatus(cfg)),
     pool: { fresh: bankCount(), generating: !!generating },
     queue: listQueue().filter(q => q.status === 'waiting').length,
     jobs: db.prepare("SELECT COUNT(*) n FROM jobs WHERE status = 'waiting'").get().n,
+    publishing: publishing.size,
     youtube: { connected: isConnected(), channel: kvGet('youtube_channel'), configured: !!(env('YOUTUBE_CLIENT_ID') && env('YOUTUBE_CLIENT_SECRET')) },
     tiktok: { enabled: cfg.tiktok?.enabled !== false, configured: ttConfigured(), connected: ttConnected(), name: ttAccount()?.name || null },
     facebook: { enabled: cfg.facebook?.enabled !== false, configured: fbConfigured(), connected: fbConnected(), page: fbPage() ? { id: fbPage().id, name: fbPage().name } : null, pages: fbPages() },
@@ -206,6 +218,8 @@ app.post('/api/run', jobRoute('make', req => {
   if (style.startsWith('film:') && !byId(style.slice(5))) throw new Error('unknown animation style');
   return { upload: req.body?.upload, style };
 }));
+// automatic daily videos on/off (the in-dashboard scheduler and the daily worker both respect it)
+app.put('/api/schedule', (req, res) => { const c = channel(); c.schedule.enabled = !!req.body?.enabled; saveChannel(c); res.json({ enabled: c.schedule.enabled }); });
 app.get('/api/jobs', (req, res) => res.json(db.prepare("SELECT * FROM jobs WHERE status IN ('waiting','running') OR (status = 'failed' AND ended_at > ?) ORDER BY id").all(new Date(Date.now() - 6 * 3600_000).toISOString())));
 app.delete('/api/jobs/:id', (req, res) => {
   const j = jobGet(+req.params.id);
@@ -247,7 +261,15 @@ app.post('/api/queue/:id/move', (req, res) => { moveQueued(+req.params.id, req.b
 app.post('/api/queue/:id/retry', (req, res) => { retryQueued(+req.params.id); res.json({ ok: true }); });
 app.post('/api/queue/:id/run', jobRoute('queue', req => ({ queueId: +req.params.id, upload: req.body?.upload })));
 // Resume: continue from the last completed stage (keeps topic, script, voice, footage).
-const resume = jobRoute('resume', req => ({ runId: req.params.id, upload: req.body?.upload }));
+// Resume: a video that is already rendered only has publishing left → it joins the parallel upload lane
+// ('publish' task). Anything earlier continues production in the one-at-a-time lane.
+const isRendered = id => {
+  const sf = path.join(RUNS, id, 'state.json');
+  return fs.existsSync(path.join(RUNS, id, 'final.mp4')) && fs.existsSync(sf) && JSON.parse(fs.readFileSync(sf, 'utf8')).done?.includes('render');
+};
+const resume = (req, res) => (getRun(req.params.id) && isRendered(req.params.id)
+  ? jobRoute('publish', r => ({ runId: r.params.id }))
+  : jobRoute('resume', r => ({ runId: r.params.id, upload: r.body?.upload })))(req, res);
 app.post('/api/runs/:id/resume', resume);
 app.post('/api/runs/:id/retry', resume);
 // Start over: forget every stage (new topic, new script) but keep the same run slot.

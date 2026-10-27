@@ -41,7 +41,7 @@
 
   <section class="grid">
     <div class="card"><div class="k">Now</div><div class="v" id="nowState">—</div><div class="s" id="nowSub"></div></div>
-    <div class="card"><div class="k">Next automatic run</div><div class="v" id="nextRun">—</div><div class="s">local time · daily</div></div>
+    <div class="card"><div class="row"><div class="k">Next automatic run</div><label class="switch" title="Make the day's videos automatically while this dashboard is open"><input type="checkbox" id="autoRuns"><span></span></label></div><div class="v" id="nextRun">—</div><div class="s" id="nextRunSub">local time · daily</div></div>
     <div class="card"><div class="k">Next publish slot</div><div class="v" id="nextPub">—</div><div class="s">your time · scheduled on YouTube</div></div>
     <div class="card"><div class="k">Daily quota</div><div class="v" id="totals">—</div><div class="s" id="totalsSub"></div></div>
   </section>
@@ -150,7 +150,7 @@
     <div id="dTiktok" hidden>
       <h3>TikTok caption</h3>
       <p class="muted" id="dTtNote"></p>
-      <textarea id="dTtCaption" rows="5" readonly></textarea>
+      <textarea id="dTtCaption" rows="3" readonly></textarea>
       <button class="sm" id="dTtCopy">Copy caption</button>
     </div>
     <h3>Script</h3><ol id="dScenes"></ol>

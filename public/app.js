@@ -75,13 +75,16 @@ async function refresh() {
   renderTiktok(s.tiktok);
   renderFacebook(s.facebook);
   renderPoolStatus(s);
-  if (s.jobs !== loadJobs.lastCount || s.running?.runId !== loadJobs.lastRun) { loadJobs.lastCount = s.jobs; loadJobs.lastRun = s.running?.runId; loadJobs(); }
+  const jobKey = `${s.jobs}|${s.publishing}|${s.running?.runId}`;
+  if (jobKey !== loadJobs.lastKey) { loadJobs.lastKey = jobKey; loadJobs(); }
   renderLive(s);
   $('#channelName').textContent = s.youtube.channel ? `· ${s.youtube.channel.title}` : '';
   $('#nowState').textContent = s.running ? 'Producing…' : 'Idle';
   $('#nowSub').textContent = s.running ? (s.stages.find(x => x.id === s.running.stage)?.label || 'starting') : 'waiting for the next run';
   $('#runNow').title = s.running ? 'A video is being made — this joins the task list and starts after it' : '';
-  $('#nextRun').textContent = fmt(s.nextRun);
+  $('#autoRuns').checked = s.autoRuns;
+  $('#nextRun').textContent = s.autoRuns ? fmt(s.nextRun) : 'Off';
+  $('#nextRunSub').textContent = s.autoRuns ? 'local time · daily, while the dashboard is open' : 'videos are made only when you click';
   $('#nextPub').textContent = fmt(s.nextPublish);
   $('#totals').textContent = `${s.today.made} / ${s.today.target} today`;
   $('#totalsSub').textContent = `${s.totals.done || 0} made in total · ${s.totals.uploaded || 0} uploaded`;
@@ -107,11 +110,13 @@ async function refresh() {
       ${acts.length ? `<div class="row-acts">${acts.map(([a, t, c]) => `<button class="sm ${c}" data-act="${a}" data-id="${r.id}">${t}</button>`).join('')}</div>` : ''}</td>
     <td>${esc(r.style || '')}</td><td>${r.duration ? r.duration.toFixed(0) + 's' : ''}</td>
     <td><span class="chip ${r.status}">${r.status}${['running', 'interrupted', 'failed', 'cancelled'].includes(r.status) && r.stage ? ' · ' + esc(label(r.stage)) : ''}</span></td>
-    <td>${r.youtube_id ? `<a href="https://youtube.com/shorts/${r.youtube_id}" target="_blank" onclick="event.stopPropagation()">YouTube</a> ${fmt(r.publish_at)}` : ''}${r.facebook_id ? `${r.youtube_id ? '<br>' : ''}<a href="https://www.facebook.com/reel/${r.facebook_id}" target="_blank" onclick="event.stopPropagation()">Facebook</a> ${fmt(r.fb_publish_at || r.publish_at)}` : ''}${r.tiktok_id ? `${r.youtube_id || r.facebook_id ? '<br>' : ''}<span class="muted">TikTok draft</span>` : ''}</td></tr>`;
+    <td>${r.youtube_id ? `<a href="https://youtube.com/shorts/${r.youtube_id}" target="_blank" onclick="event.stopPropagation()">YouTube</a> ${fmt(r.publish_at)}` : ''}${r.facebook_id ? `${r.youtube_id ? '<br>' : ''}<a href="https://www.facebook.com/reel/${r.facebook_id}" target="_blank" onclick="event.stopPropagation()">Facebook</a> ${fmt(r.fb_publish_at || r.publish_at)}` : ''}${r.tiktok_id ? `${r.youtube_id || r.facebook_id ? '<br>' : ''}<span class="muted">TikTok draft</span> <button class="sm tt" data-ttcopy="${r.id}" title="Copy the TikTok caption">Copy caption</button>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="6" class="muted">No videos yet — click “Make a video now”.</td></tr>';
 }
 
-$('#runs').addEventListener('click', e => {
+$('#runs').addEventListener('click', async e => {
+  const c = e.target.closest('[data-ttcopy]');
+  if (c) { e.stopPropagation(); const r = await api(`/api/runs/${c.dataset.ttcopy}`); try { await navigator.clipboard.writeText(r.ttCaption); toast('TikTok caption copied'); } catch { toast(r.ttCaption); } return; }
   const b = e.target.closest('button[data-act]'); if (b) { e.stopPropagation(); return act(b.dataset.id, b.dataset.act); }
   const tr = e.target.closest('tr[data-id]'); if (tr) openRun(tr.dataset.id);
 });
@@ -133,9 +138,9 @@ async function openRun(id) {
   // TikTok: the drafts API takes no caption, so it is shown here to copy into TikTok
   $('#dTiktok').hidden = !r.ttCaption;
   if (r.ttCaption) {
-    $('#dTtCaption').value = r.meta?.tiktok?.caption || r.ttCaption;
+    $('#dTtCaption').value = r.ttCaption;
     const postAt = r.meta?.tiktok?.postAt || r.publish_at;
-    $('#dTtNote').textContent = r.tiktok_id ? `In your TikTok drafts${postAt ? ` — post it around ${fmt(postAt)} (same time as YouTube)` : ''}. Paste this caption and turn on “AI-generated content”.` : 'Caption for TikTok (used when you send this video to your drafts).';
+    $('#dTtNote').textContent = r.tiktok_id ? `In your TikTok drafts${postAt ? ` — post it around ${fmt(postAt)} (same time as YouTube)` : ''}. TikTok's drafts can't carry a caption, so paste this one and turn on “AI-generated content”.` : 'Caption for TikTok: copy it when you post the draft.';
   }
   $('#dActions').innerHTML = acts.join('');
   $('#dActions').onclick = async e => { const a = e.target.dataset.act; if (!a) return; if (a === 'cancel' && !confirm('Cancel this video?')) return; await act(id, a); $('#closeDrawer').click(); };
@@ -151,14 +156,22 @@ async function makeNow(style) {
   } catch (e) { toast(e.message, 1); }
 }
 
+$('#autoRuns').onchange = async e => {
+  const on = e.target.checked;
+  if (!on && !confirm('Stop making videos automatically? Your buttons and the Task list keep working; a video that is being made now is not stopped (use Cancel for that).')) { e.target.checked = true; return; }
+  try { await api('/api/schedule', { method: 'PUT', body: JSON.stringify({ enabled: on }) }); toast(on ? 'Automatic daily videos are on' : 'Automatic daily videos are off'); refresh(); }
+  catch (err) { toast(err.message, 1); e.target.checked = !on; }
+};
+
 // ---------- task list ----------
 async function loadJobs() {
   const jobs = await api('/api/jobs');
-  const waiting = jobs.filter(j => j.status === 'waiting'), failed = jobs.filter(j => j.status === 'failed'), running = jobs.find(j => j.status === 'running');
-  $('#jobsCard').hidden = !waiting.length && !failed.length;
+  const waiting = jobs.filter(j => j.status === 'waiting'), failed = jobs.filter(j => j.status === 'failed'), running = jobs.filter(j => j.status === 'running');
+  const isUpload = j => ['upload', 'facebook', 'tiktok', 'publish'].includes(j.kind);
+  $('#jobsCard').hidden = !waiting.length && !failed.length && !running.some(isUpload);
   $('#jCount').textContent = waiting.length;
   $('#jobList').innerHTML = [
-    running ? `<li class="running"><span class="n">▶</span><span class="t"><b>${esc(running.label)}</b><small>running now</small></span></li>` : '',
+    ...running.map(j => `<li class="running"><span class="n">▶</span><span class="t"><b>${esc(j.label)}</b><small>${isUpload(j) ? 'uploading now (up to 3 uploads run side by side)' : 'running now'}</small></span></li>`),
     ...waiting.map((j, k) => `<li><span class="n">${k + 1}</span><span class="t"><b>${esc(j.label)}</b><small>added ${new Date(j.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></span>
       <span class="acts"><button class="sm danger" data-job="${j.id}" title="Remove from the task list">✕</button></span></li>`),
     ...failed.map(j => `<li class="failed"><span class="n">!</span><span class="t"><b>${esc(j.label)}</b><small class="bad">couldn't run: ${esc(j.error || '')}</small></span></li>`),
@@ -233,6 +246,7 @@ $('#settings').onsubmit = async e => {
   cfg.schedule.publishSlotsUTC = slots; cfg.schedule.publishAtUTC = slots[0];
   cfg.schedule.videosPerDay = Math.min(6, Math.max(1, +f.videosPerDay.value || 1));
   cfg.youtube.autoUpload = f.autoUpload.checked;
+  cfg.schedule.enabled = $('#autoRuns').checked;   // the switch on the Next automatic run card
   document.querySelectorAll('[data-style]').forEach(i => { cfg.styles[i.dataset.style].enabled = i.checked; });
   if (!Object.values(cfg.styles).some(s => s.enabled)) return alert('Enable at least one style');
   await api('/api/config', { method: 'PUT', body: JSON.stringify(cfg) });

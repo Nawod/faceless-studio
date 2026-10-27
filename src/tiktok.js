@@ -105,8 +105,14 @@ export async function sendDraft(file, log) {
   return { id: init.publish_id };
 }
 
-/** The caption to paste in TikTok (the drafts API takes no caption). */
+/**
+ * The caption to paste in TikTok (TikTok's video-drafts API has no caption field): the video's hook title and exactly
+ * 5 hashtags — 2 about this topic, then the channel's own. Built from the plan by code (no AI).
+ */
 export function ttCaption(plan, cfg) {
-  const tags = [...new Set([...(plan.tags || []).slice(0, 4), ...(cfg.tiktok?.hashtags || [])])].map(t => '#' + String(t).replace(/[^\p{L}\p{N}]/gu, '')).join(' ');
-  return `${plan.title}\n\n${String(plan.description || '').replace(/\s*Sources:[\s\S]*$/i, '').replace(/#\w+/g, '').trim()}\n\n${tags}`.slice(0, 2200);
+  const tag = t => String(t || '').toLowerCase().replace(/^#/, '').replace(/[^\p{L}\p{N}]/gu, '');
+  const channelTags = (cfg.tiktok?.hashtags || ['earthhasbugs', 'science', 'facts']).map(tag).filter(Boolean);
+  const topicTags = (plan.tags || []).map(tag).filter(t => t.length >= 3 && t.length <= 24 && !channelTags.includes(t) && t !== 'shorts');
+  const tags = [...new Set([...topicTags.slice(0, 2), ...channelTags])].slice(0, 5);
+  return `${String(plan.title || plan.topic || '').replace(/#\S+/g, '').trim()}\n${tags.map(t => '#' + t).join(' ')}`;
 }

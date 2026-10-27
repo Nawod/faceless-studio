@@ -57,6 +57,8 @@ export function nextFreeSlot(schedule = {}) {
   const taken = new Set(db.prepare(`SELECT publish_at FROM runs WHERE publish_at IS NOT NULL AND (youtube_id IS NOT NULL OR facebook_id IS NOT NULL)
     UNION SELECT fb_publish_at FROM runs WHERE fb_publish_at IS NOT NULL AND facebook_id IS NOT NULL`).all()
     .map(r => new Date(r.publish_at).toISOString().slice(0, 16)));
+  // slots reserved by uploads in progress (several uploads can run at once)
+  for (const [k, until] of Object.entries(kvGet('slotHolds') || {})) if (until > Date.now()) taken.add(k);
   const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() + (schedule.leadDays || 0));
   for (let day = 0; day < 60; day++) {
     for (const s of slots) {
@@ -93,7 +95,8 @@ export async function uploadVideo(file, { title, description, tags, categoryId =
   const size = fs.statSync(file).size;
   const meta = {
     snippet: { title: title.slice(0, 100), description: description.slice(0, 4900), tags, categoryId, defaultLanguage: 'en', defaultAudioLanguage: 'en' },
-    status: { privacyStatus: 'private', publishAt, selfDeclaredMadeForKids: madeForKids, containsSyntheticMedia: synthetic, embeddable: true, license: 'youtube' },
+    // publishAt = scheduled (private until then); none = the shared time has passed → public now
+    status: { privacyStatus: publishAt ? 'private' : 'public', ...(publishAt ? { publishAt } : {}), selfDeclaredMadeForKids: madeForKids, containsSyntheticMedia: synthetic, embeddable: true, license: 'youtube' },
   };
   const init = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
     method: 'POST',
@@ -106,6 +109,6 @@ export async function uploadVideo(file, { title, description, tags, categoryId =
   const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(size) }, body: fs.readFileSync(file) });
   const j = await put.json();
   if (!put.ok || !j.id) throw new Error(`upload failed ${put.status}: ${JSON.stringify(j).slice(0, 400)}`);
-  log?.info(`uploaded https://youtube.com/shorts/${j.id} (scheduled ${publishAt})`);
+  log?.info(`uploaded https://youtube.com/shorts/${j.id} (${publishAt ? `scheduled ${publishAt}` : 'published now'})`);
   return j.id;
 }

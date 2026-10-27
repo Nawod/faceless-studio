@@ -15,9 +15,10 @@ import { reviewStills } from './qa.js';
 import { renderVideo, mux } from './render.js';
 import { directFilm } from './director.js';
 import { usage } from './claude.js';
-import { uploadVideo, nextFreeSlot, isConnected } from './youtube.js';
-import { uploadReel, fbConnected } from './facebook.js';
-import { sendDraft, ttConnected, ttCaption } from './tiktok.js';
+import { isConnected } from './youtube.js';
+import { fbConnected } from './facebook.js';
+import { ttConnected } from './tiktok.js';
+import { toYouTube, toFacebook, toTikTok } from './publish.js';
 
 const VOICE_DELAY = 0.15, TAIL = 2.2;   // tail leaves room for the brand end card
 
@@ -289,63 +290,18 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       updateRun(runId, { video_path: st.video, duration: spec.duration });
     });
 
-    // Publishing: one slot per video, shared by YouTube and the Facebook Page; each platform is skipped when not connected.
+    // Publishing (src/publish.js): one slot per video, shared by YouTube, the Facebook Page and TikTok;
+    // each platform is skipped when it isn't connected.
     const publishGate = () => {
       if (!upload) { log.info('upload disabled for this run — video ready in the dashboard'); return false; }
-      if (st.held && !forceUpload) { log.warn('not uploading: held for review (use "Upload & schedule" in the dashboard to publish it anyway)'); return false; }
+      if (st.held && !forceUpload) { log.warn('not uploading: held for review (use "Upload anyway" in the dashboard to publish it)'); return false; }
       const fbOn = cfg.facebook?.enabled !== false && fbConnected(), ttOn = cfg.tiktok?.enabled !== false && ttConnected();
       if (!isConnected() && !fbOn && !ttOn) throw new Error('No platform is connected (YouTube, Facebook Page or TikTok — see Setup)');
-      // a video already scheduled on YouTube keeps that slot on Facebook too (if it's still ahead)
-      const yt = st.youtube?.publishAt && new Date(st.youtube.publishAt).getTime() > Date.now() + 20 * 60_000 ? st.youtube.publishAt : null;
-      // a slot picked by an earlier attempt that has since passed is replaced by the next free one
-      if (st.publishAt && new Date(st.publishAt).getTime() < Date.now() + 20 * 60_000 && !st.youtube) st.publishAt = null;
-      st.publishAt ||= yt || nextFreeSlot(cfg.schedule);
       return true;
     };
-
-    if (!only || only === 'youtube') await stage('upload', async () => {
-      if (!publishGate()) return;
-      if (!isConnected()) { log.warn('YouTube is not connected — skipping YouTube for this video'); return; }
-      setProgress({ detail: 'Uploading to YouTube and scheduling' });
-      const p = st.plan;
-      const publishAt = st.publishAt;
-      const src = (p.sources || []).filter(s => s.url).map(s => `• ${s.title || ''} ${s.url}`.trim()).slice(0, 6).join('\n');
-      const description = [p.description.replace(/\s*Sources:[\s\S]*$/i, '').trim(), src ? `\nSources:\n${src}` : '', st.credits?.length ? `\nStock footage — ${st.credits.slice(0, 5).join(', ')}` : '', '\nVoice and animation are AI-assisted; facts checked against the sources above.'].join('\n');
-      const tags = [...new Set([...(p.tags || []), ...cfg.youtube.defaultTags])].slice(0, 20);
-      const title = /#shorts/i.test(p.title) ? p.title : p.title;
-      const id = await uploadVideo(st.video, { title, description, tags, categoryId: cfg.youtube.categoryId, publishAt, madeForKids: cfg.youtube.madeForKids, synthetic: cfg.youtube.containsSyntheticMedia }, log);
-      st.youtube = { id, publishAt };
-      updateRun(runId, { youtube_id: id, publish_at: publishAt });
-    });
-
-    if (!only || only === 'facebook') await stage('facebook', async () => {
-      if (cfg.facebook?.enabled === false) return;
-      if (!publishGate()) return;
-      if (!fbConnected()) { log.warn('Facebook Page is not connected — skipping Facebook for this video'); return; }
-      if (st.voice?.total > 90) { log.warn(`video is ${st.voice.total.toFixed(0)} s; Facebook Reels allow at most 90 s — skipping Facebook`); return; }
-      setProgress({ detail: 'Uploading the Reel to your Facebook Page and scheduling it' });
-      const p = st.plan;
-      const tags = [...new Set([...(p.tags || []).slice(0, 5), ...(cfg.facebook?.hashtags || [])])].map(t => '#' + t.replace(/[^\p{L}\p{N}]/gu, '')).join(' ');
-      const src = (p.sources || []).filter(s => s.url).slice(0, 4).map(s => `• ${s.url}`).join('\n');
-      const body = p.description.replace(/\s*Sources:[\s\S]*$/i, '').replace(/#\w+/g, '').trim();
-      const credits = st.credits?.length ? `\n\nStock footage: ${st.credits.slice(0, 5).join('; ')}` : '';
-      const description = `${p.title}\n\n${body}${src ? `\n\nSources:\n${src}` : ''}${credits}\n\nVoice and animation are AI-assisted; facts checked against the sources above.\n\n${tags}`;
-      const r = await uploadReel(st.video, { title: p.title, description, publishAt: st.publishAt }, log);
-      st.facebookPost = r;
-      // the Reel's slot is recorded on its own, so the next video can't be given the same slot
-      updateRun(runId, { facebook_id: r.id, fb_publish_at: r.publishAt, ...(st.youtube ? {} : { publish_at: r.publishAt }) });
-    });
-
-    // TikTok: the video goes to your TikTok inbox as a draft (open the notification in TikTok, paste the caption, post)
-    if (!only || only === 'tiktok') await stage('tiktok', async () => {
-      if (cfg.tiktok?.enabled === false) return;
-      if (!publishGate()) return;
-      if (!ttConnected()) { log.warn('TikTok is not connected — skipping TikTok for this video'); return; }
-      setProgress({ detail: 'Sending the video to your TikTok drafts' });
-      const r = await sendDraft(st.video, log);
-      st.tiktok = { ...r, caption: ttCaption(st.plan, cfg), postAt: st.publishAt, at: new Date().toISOString() };
-      updateRun(runId, { tiktok_id: r.id });
-    });
+    if (!only || only === 'youtube') await stage('upload', async () => { if (publishGate()) { setProgress({ detail: 'Uploading to YouTube and scheduling' }); await toYouTube(runId, st, log, cfg); } });
+    if (!only || only === 'facebook') await stage('facebook', async () => { if (publishGate()) { setProgress({ detail: 'Uploading the Reel to your Facebook Page and scheduling it' }); await toFacebook(runId, st, log, cfg); } });
+    if (!only || only === 'tiktok') await stage('tiktok', async () => { if (publishGate()) { setProgress({ detail: 'Sending the video to your TikTok drafts' }); await toTikTok(runId, st, log, cfg); } });
 
     addUsage();
     log.info(`Claude usage for this video: ${(st.usage.tokens / 1e6).toFixed(1)}M context + ${(st.usage.out / 1e3).toFixed(0)}k output tokens (≈$${st.usage.usd} at API prices; on your subscription this counts against the usage limit)`);
