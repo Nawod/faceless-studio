@@ -78,7 +78,8 @@ const releaseLock = runId => { clearInterval(heartbeat); heartbeat = null; const
 
 // only: 'facebook' publishes an already-rendered video to the Facebook Page alone (YouTube is left as it is)
 // queueId: make that queue item now (otherwise the queue head, then the topic pool, is used automatically)
-export async function runPipeline({ runId = newRunId(), upload, planFile, style, language, onStage, forceUpload = false, only, queueId } = {}) {
+// publishOnly: an upload/schedule task for a finished video — only the publishing stages run, with no AI at all
+export async function runPipeline({ runId = newRunId(), upload, planFile, style, language, onStage, forceUpload = false, only, queueId, publishOnly = false } = {}) {
   const cfg = channel();
   const dir = path.join(RUNS, runId);
   fs.mkdirSync(dir, { recursive: true });
@@ -86,9 +87,14 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
   const stateFile = path.join(dir, 'state.json');
   const st = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : { done: [] };
   const save = () => fs.writeFileSync(stateFile, JSON.stringify(st, null, 1));
+  const PUBLISH = ['upload', 'facebook'];
+  // a finished video is never produced again: once it is rendered, the production stages (which call Claude)
+  // count as done — older runs may lack newer stage names such as 'direct' or 'topic'
+  const rendered = () => st.done.includes('render') && fs.existsSync(path.join(dir, 'final.mp4'));
   const stage = async (name, fn) => {
     if (cancelRequested(runId)) throw new Cancelled();
     if (st.done.includes(name)) return;
+    if (!PUBLISH.includes(name) && (publishOnly || rendered())) { if (rendered()) { st.done.push(name); save(); } return; }
     log.info(`▶ ${name}`); onStage?.(name);
     updateRun(runId, { stage: name });
     setProgress({ runId, stage: name, stagePct: 0, detail: '', stageStartedAt: Date.now() });
@@ -100,6 +106,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
   upload ??= cfg.youtube.autoUpload;
   takeLock(runId);
   usage.reset();
+  usage.forbidden = publishOnly ? (only === 'facebook' ? 'scheduling on Facebook' : 'uploading and scheduling') : null;
   if (cancelRequested(runId)) kvSet('cancel', null);
   kvSet('progress', { runId, done: [...st.done], startedAt: Date.now(), at: Date.now() });
   // Which topic: a queue item (your picks, in order) is claimed right away so its style choice applies to this run.
@@ -323,7 +330,8 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       const description = `${p.title}\n\n${body}${src ? `\n\nSources:\n${src}` : ''}${credits}\n\nVoice and animation are AI-assisted; facts checked against the sources above.\n\n${tags}`;
       const r = await uploadReel(st.video, { title: p.title, description, publishAt: st.publishAt }, log);
       st.facebookPost = r;
-      updateRun(runId, { facebook_id: r.id, publish_at: st.youtube?.publishAt || r.publishAt });
+      // the Reel's slot is recorded on its own, so the next video can't be given the same slot
+      updateRun(runId, { facebook_id: r.id, fb_publish_at: r.publishAt, ...(st.youtube ? {} : { publish_at: r.publishAt }) });
     });
 
     addUsage();
@@ -351,7 +359,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       setQueueStatus(st.assigned.queueId, tries < 2 ? 'waiting' : 'failed', { runId, error: e.limit || e.cancelled ? null : String(e.message).slice(0, 300) });
     }
     throw e;
-  } finally { addUsage(); save(); releaseLock(runId); kvSet('progress', null); if (cancelRequested(runId)) kvSet('cancel', null); }
+  } finally { usage.forbidden = null; addUsage(); save(); releaseLock(runId); kvSet('progress', null); if (cancelRequested(runId)) kvSet('cancel', null); }
 }
 
 /** Forget all completed stages so the next start redoes everything (new topic). */

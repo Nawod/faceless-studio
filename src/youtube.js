@@ -53,7 +53,9 @@ export async function channelInfo() {
 /** The earliest daily slot (UTC "HH:MM" list) that is ≥ 30 min ahead and not already taken by a scheduled upload. */
 export function nextFreeSlot(schedule = {}) {
   const slots = (schedule.publishSlotsUTC?.length ? schedule.publishSlotsUTC : [schedule.publishAtUTC || '18:00']).slice().sort();
-  const taken = new Set(db.prepare('SELECT publish_at FROM runs WHERE publish_at IS NOT NULL AND (youtube_id IS NOT NULL OR facebook_id IS NOT NULL)').all()
+  // a slot is taken by any scheduled YouTube video or Facebook Reel (each platform's own time)
+  const taken = new Set(db.prepare(`SELECT publish_at FROM runs WHERE publish_at IS NOT NULL AND (youtube_id IS NOT NULL OR facebook_id IS NOT NULL)
+    UNION SELECT fb_publish_at FROM runs WHERE fb_publish_at IS NOT NULL AND facebook_id IS NOT NULL`).all()
     .map(r => new Date(r.publish_at).toISOString().slice(0, 16)));
   const start = new Date(); start.setUTCHours(0, 0, 0, 0); start.setUTCDate(start.getUTCDate() + (schedule.leadDays || 0));
   for (let day = 0; day < 60; day++) {

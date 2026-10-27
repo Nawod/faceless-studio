@@ -101,9 +101,10 @@ function runJob(j) {
   if (j.kind === 'upload') {
     const fbWanted = channel().facebook?.enabled !== false && fbConnected();
     if (!['done', 'held'].includes(r.status) || (r.youtube_id && (r.facebook_id || !fbWanted))) throw new Error('nothing left to upload for this video');
+    if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
     const st = readSt(r.id);   // re-open only the publishing stages a platform doesn't have yet
     st.done = st.done.filter(s => !(s === 'upload' && !r.youtube_id) && !(s === 'facebook' && !r.facebook_id)); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
-    return start({ runId: r.id, upload: true, forceUpload: true }, j.id);
+    return start({ runId: r.id, upload: true, forceUpload: true, publishOnly: true }, j.id);
   }
   if (j.kind === 'facebook') {
     if (r.facebook_id) throw new Error('already scheduled on Facebook');
@@ -112,7 +113,7 @@ function runJob(j) {
     const st = readSt(r.id);
     st.video ||= path.join(RUNS, r.id, 'final.mp4');
     st.done = st.done.filter(s => s !== 'facebook'); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
-    return start({ runId: r.id, upload: true, forceUpload: true, only: 'facebook' }, j.id);
+    return start({ runId: r.id, upload: true, forceUpload: true, only: 'facebook', publishOnly: true }, j.id);
   }
   throw new Error(`unknown task ${j.kind}`);
 }
@@ -173,7 +174,7 @@ app.get('/api/status', async (req, res) => {
     recentTopics: recentTopics(cfg.variety.dedupDays).length,
   });
 });
-app.get('/api/runs', (req, res) => res.json(db.prepare('SELECT id, created_at, status, stage, topic, style, title, duration, youtube_id, facebook_id, publish_at, error FROM runs ORDER BY created_at DESC LIMIT 100').all()
+app.get('/api/runs', (req, res) => res.json(db.prepare('SELECT id, created_at, status, stage, topic, style, title, duration, youtube_id, facebook_id, publish_at, fb_publish_at, error FROM runs ORDER BY created_at DESC LIMIT 100').all()
   .map(r => ({ ...r, hasVideo: fs.existsSync(path.join(RUNS, r.id, 'final.mp4')) }))));
 app.get('/api/runs/:id', (req, res) => {
   const r = getRun(req.params.id); if (!r) return res.status(404).end();

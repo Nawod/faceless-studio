@@ -21,6 +21,8 @@ export function parseReset(msg, now = new Date()) {
 // Token accounting for the current run (one pipeline per process): the dashboard and logs show what each video cost.
 export const usage = {
   calls: [], reset() { this.calls = []; },
+  // set while a task needs no AI at all (publishing a finished video): any Claude call is a bug, so it is refused
+  forbidden: null,
   total() { return this.calls.reduce((a, c) => ({ usd: a.usd + c.usd, tokens: a.tokens + c.tokens, out: a.out + c.out }), { usd: 0, tokens: 0, out: 0 }); },
 };
 
@@ -32,6 +34,7 @@ export const usage = {
 export async function askClaude(prompt, opts = {}) {
   const { schema, model = env('CLAUDE_MODEL', 'opus'), tools = [], cwd = ROOT, maxTurns = 12,
     timeoutMs = 15 * 60_000, system, log, retries = 1, addDirs = [], label = 'claude' } = opts;
+  if (usage.forbidden) { log?.error(`refused a Claude call (${label}) during "${usage.forbidden}" — this task needs no AI`); throw new ClaudeError(`no AI is used for ${usage.forbidden}`); }
   if (!bins.claude) throw new ClaudeError('Claude Code CLI not found. Set CLAUDE_BIN in .env.');
 
   const args = ['-p', '--output-format', 'json', '--model', model, '--max-turns', String(maxTurns)];

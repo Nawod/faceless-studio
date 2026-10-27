@@ -101,7 +101,7 @@ async function refresh() {
       ${acts.length ? `<div class="row-acts">${acts.map(([a, t, c]) => `<button class="sm ${c}" data-act="${a}" data-id="${r.id}">${t}</button>`).join('')}</div>` : ''}</td>
     <td>${esc(r.style || '')}</td><td>${r.duration ? r.duration.toFixed(0) + 's' : ''}</td>
     <td><span class="chip ${r.status}">${r.status}${['running', 'interrupted', 'failed', 'cancelled'].includes(r.status) && r.stage ? ' · ' + esc(label(r.stage)) : ''}</span></td>
-    <td>${r.youtube_id || r.facebook_id ? `${fmt(r.publish_at)}<br>` : ''}${r.youtube_id ? `<a href="https://youtube.com/shorts/${r.youtube_id}" target="_blank" onclick="event.stopPropagation()">YouTube</a>` : ''}${r.facebook_id ? ` <a href="https://www.facebook.com/reel/${r.facebook_id}" target="_blank" onclick="event.stopPropagation()">Facebook</a>` : ''}</td></tr>`;
+    <td>${r.youtube_id ? `<a href="https://youtube.com/shorts/${r.youtube_id}" target="_blank" onclick="event.stopPropagation()">YouTube</a> ${fmt(r.publish_at)}` : ''}${r.facebook_id ? `${r.youtube_id ? '<br>' : ''}<a href="https://www.facebook.com/reel/${r.facebook_id}" target="_blank" onclick="event.stopPropagation()">Facebook</a> ${fmt(r.fb_publish_at || r.publish_at)}` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="6" class="muted">No videos yet — click “Make a video now”.</td></tr>';
 }
 
