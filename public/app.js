@@ -43,6 +43,7 @@ $('#cancelRun').onclick = async () => {
 async function act(id, a) {
   if (a === 'restart' && !confirm('Start over? This picks a NEW topic and redoes every step for this run.')) return;
   if (a === 'facebook' && !confirm('Schedule this video as a Reel on your Facebook Page (next free publish slot)?')) return;
+  if (a === 'tiktok' && !confirm('Send this video to your TikTok drafts? You then post it from the TikTok app.')) return;
   try {
     const r = await api(`/api/runs/${id}/${a}`, { method: 'POST', body: JSON.stringify({ upload: $('#uploadToggle').checked }) });
     if (r.note) toast(r.note);
@@ -58,16 +59,20 @@ const actionsFor = (r, runningId) => {
   else if (r.status === 'done' && !r.youtube_id) acts.push(['upload', 'Upload to YouTube', '']);
   // its own button: any finished video can go to the Facebook Page, whatever happened on YouTube
   if (fbOn && r.hasVideo && !r.facebook_id) acts.push(['facebook', 'Schedule on Facebook', 'fb']);
+  if (ttOn && r.hasVideo && !r.tiktok_id) acts.push(['tiktok', 'Send to TikTok drafts', 'tt']);
   return acts;
 };
 
 let fbOn = false;   // Facebook Page connected and enabled (offers "Schedule on Facebook" for older videos)
+let ttOn = false;   // TikTok connected and enabled (offers "Send to TikTok drafts")
 const toast = (msg, err) => { const t = document.createElement('div'); t.className = `toast${err ? ' err' : ''}`; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3500); };
 const post = (p, body = {}) => api(p, { method: 'POST', body: JSON.stringify(body) });
 
 async function refresh() {
   const s = await api('/api/status');
   fbOn = !!(s.facebook?.enabled && s.facebook?.connected);
+  ttOn = !!(s.tiktok?.enabled && s.tiktok?.connected);
+  renderTiktok(s.tiktok);
   renderFacebook(s.facebook);
   renderPoolStatus(s);
   if (s.jobs !== loadJobs.lastCount || s.running?.runId !== loadJobs.lastRun) { loadJobs.lastCount = s.jobs; loadJobs.lastRun = s.running?.runId; loadJobs(); }
@@ -89,6 +94,7 @@ async function refresh() {
     [s.youtube.configured, 'YouTube OAuth client', s.youtube.configured ? 'set' : 'YOUTUBE_CLIENT_ID / SECRET in .env'],
     [s.youtube.connected, 'YouTube channel', s.youtube.connected ? (s.youtube.channel?.title || 'connected') : '<a href="/oauth/start">Connect YouTube →</a>'],
     [!s.facebook.enabled || s.facebook.connected, 'Facebook Page', !s.facebook.enabled ? 'off' : s.facebook.connected ? s.facebook.page.name : 'not connected — see the Facebook Page card'],
+    [!s.tiktok.enabled || s.tiktok.connected, 'TikTok', !s.tiktok.enabled ? 'off' : s.tiktok.connected ? (s.tiktok.name || 'connected') : 'not connected — see the TikTok card'],
   ];
   $('#checks').innerHTML = items.map(([ok, k, v]) => `<li><b class="${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</b><span><b>${k}</b><br><span class="muted">${v}</span></span></li>`).join('');
   $('#setup').style.display = items.every(i => i[0]) ? 'none' : '';
@@ -101,7 +107,7 @@ async function refresh() {
       ${acts.length ? `<div class="row-acts">${acts.map(([a, t, c]) => `<button class="sm ${c}" data-act="${a}" data-id="${r.id}">${t}</button>`).join('')}</div>` : ''}</td>
     <td>${esc(r.style || '')}</td><td>${r.duration ? r.duration.toFixed(0) + 's' : ''}</td>
     <td><span class="chip ${r.status}">${r.status}${['running', 'interrupted', 'failed', 'cancelled'].includes(r.status) && r.stage ? ' · ' + esc(label(r.stage)) : ''}</span></td>
-    <td>${r.youtube_id ? `<a href="https://youtube.com/shorts/${r.youtube_id}" target="_blank" onclick="event.stopPropagation()">YouTube</a> ${fmt(r.publish_at)}` : ''}${r.facebook_id ? `${r.youtube_id ? '<br>' : ''}<a href="https://www.facebook.com/reel/${r.facebook_id}" target="_blank" onclick="event.stopPropagation()">Facebook</a> ${fmt(r.fb_publish_at || r.publish_at)}` : ''}</td></tr>`;
+    <td>${r.youtube_id ? `<a href="https://youtube.com/shorts/${r.youtube_id}" target="_blank" onclick="event.stopPropagation()">YouTube</a> ${fmt(r.publish_at)}` : ''}${r.facebook_id ? `${r.youtube_id ? '<br>' : ''}<a href="https://www.facebook.com/reel/${r.facebook_id}" target="_blank" onclick="event.stopPropagation()">Facebook</a> ${fmt(r.fb_publish_at || r.publish_at)}` : ''}${r.tiktok_id ? `${r.youtube_id || r.facebook_id ? '<br>' : ''}<span class="muted">TikTok draft</span>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="6" class="muted">No videos yet — click “Make a video now”.</td></tr>';
 }
 
@@ -124,6 +130,13 @@ async function openRun(id) {
   if (st.running?.runId === id) acts.push(`<button class="danger" data-act="cancel">Cancel</button>`);
   if (r.youtube_id) acts.push(`<a href="https://studio.youtube.com/video/${r.youtube_id}/edit" target="_blank">Open in YouTube Studio →</a>`);
   if (r.facebook_id) acts.push(`<a href="https://business.facebook.com/latest/content_calendar" target="_blank">Facebook content calendar →</a>`);
+  // TikTok: the drafts API takes no caption, so it is shown here to copy into TikTok
+  $('#dTiktok').hidden = !r.ttCaption;
+  if (r.ttCaption) {
+    $('#dTtCaption').value = r.meta?.tiktok?.caption || r.ttCaption;
+    const postAt = r.meta?.tiktok?.postAt || r.publish_at;
+    $('#dTtNote').textContent = r.tiktok_id ? `In your TikTok drafts${postAt ? ` — post it around ${fmt(postAt)} (same time as YouTube)` : ''}. Paste this caption and turn on “AI-generated content”.` : 'Caption for TikTok (used when you send this video to your drafts).';
+  }
   $('#dActions').innerHTML = acts.join('');
   $('#dActions').onclick = async e => { const a = e.target.dataset.act; if (!a) return; if (a === 'cancel' && !confirm('Cancel this video?')) return; await act(id, a); $('#closeDrawer').click(); };
   $('#dScenes').innerHTML = (r.plan?.scenes || []).map(s => `<li>${esc(s.narration)} <span class="muted">[${esc(s.visual?.kind)}]</span></li>`).join('');
@@ -225,6 +238,30 @@ $('#settings').onsubmit = async e => {
   await api('/api/config', { method: 'PUT', body: JSON.stringify(cfg) });
   $('#saved').textContent = 'Saved ✓'; setTimeout(() => ($('#saved').textContent = ''), 2000); refresh();
 };
+
+$('#dTtCopy').onclick = async () => { try { await navigator.clipboard.writeText($('#dTtCaption').value); toast('Caption copied'); } catch { $('#dTtCaption').select(); document.execCommand('copy'); toast('Caption copied'); } };
+
+// ---------- tiktok ----------
+function renderTiktok(t) {
+  if (!t) return;
+  const key = JSON.stringify(t); if (renderTiktok.last === key) return; renderTiktok.last = key;
+  $('#ttEnabled').checked = t.enabled;
+  $('#ttState').innerHTML = t.connected
+    ? `<p><b class="ok">✓</b> Sending drafts to <b>${esc(t.name || 'your TikTok account')}</b></p>`
+    : `<p><b class="bad">✗</b> Not connected.${t.configured ? '' : ' <span class="muted">First add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET to .env (README → TikTok), then restart.</span>'}</p>`;
+  const acts = [];
+  if (t.configured) acts.push(`<a class="btn primary" href="/tt/start">${t.connected ? 'Reconnect' : 'Connect TikTok'}</a>`);
+  if (t.connected) acts.push('<button class="sm" data-tt="check">Test connection</button>', '<button class="sm danger" data-tt="disconnect">Disconnect</button>');
+  $('#ttActions').innerHTML = acts.join('');
+}
+$('#ttActions').onclick = async e => {
+  const a = e.target.closest('[data-tt]')?.dataset.tt; if (!a) return;
+  try {
+    if (a === 'check') { const r = await post('/api/tiktok/check'); toast(`OK — ${r.name}`); }
+    if (a === 'disconnect' && confirm('Disconnect TikTok?')) { await post('/api/tiktok/disconnect'); refresh(); }
+  } catch (err) { toast(err.message, 1); }
+};
+$('#ttEnabled').onchange = async e => { await api('/api/tiktok', { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) }); refresh(); };
 
 // ---------- facebook ----------
 function renderFacebook(f) {

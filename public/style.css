@@ -22,6 +22,10 @@ tbody tr{cursor:pointer}tbody tr:hover{background:color-mix(in srgb,var(--acc) 5
 .chip.held{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
 .chip.interrupted{background:color-mix(in srgb,#8b5cf6 20%,transparent);color:#8b5cf6}.chip.cancelled{background:var(--line);color:var(--mut)}
 button.danger{border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:var(--bad)}
+button.tt{border-color:#ee1d52;color:#ee1d52}
+button.tt:hover{background:#ee1d52;color:#fff}
+#dTtCaption{width:100%;font:13px/1.45 system-ui,sans-serif;resize:vertical}
+#dTiktok .sm{margin-top:6px}
 button.fb{border-color:#1877f2;color:#1877f2}
 button.fb:hover{background:#1877f2;color:#fff}
 button.sm{padding:4px 10px;font-size:13px;border-radius:8px}

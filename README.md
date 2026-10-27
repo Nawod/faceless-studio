@@ -128,3 +128,17 @@ Turn Facebook off with the card's checkbox. Videos already on YouTube get a **Sc
 - **Topic pool:** Claude researches about 20 checked ideas in one cheap Sonnet call, using today's US/UK trend signals plus evergreen formats. Each automatic video takes the best fresh idea, rotating categories. The pool refills itself in the background when fewer than `topics.bankMin` ideas remain. You can also click **Research 20 more ideas**, add your own, queue one, or reject one.
 - Nothing too close to a video from the last 90 days gets in, and the same topic can't be queued twice.
 - **Savings:** the trend scan and topic hunt now run once per 20 videos instead of once per video. In director mode the planner writes only the script and a one-line note per beat on what we see; template visuals are made only if a film falls back to the templates.
+
+## TikTok (drafts)
+
+Each finished video is sent to your **TikTok inbox as a draft**. TikTok notifies you; open the notification, paste the caption (the video's panel in the dashboard has a **Copy caption** button), turn on **AI-generated content**, and post, ideally at the same time as YouTube. Every finished video without a draft also gets its own **Send to TikTok drafts** button.
+Why drafts: TikTok only allows fully automatic posting after it audits the app, and until then everything posted is private. Drafts need no audit. The drafts API also takes no caption, which is why you paste it.
+
+One-time setup:
+1. Go to https://developers.tiktok.com → **Manage apps → Connect an app**. Choose the **Desktop** platform, because TikTok's web platform doesn't accept `localhost` redirect addresses.
+2. Add the products **Login Kit** and **Content Posting API**. Under Content Posting API, turn on **Upload** (you don't need Direct Post). Request the scopes `user.info.basic` and `video.upload`.
+3. In Login Kit, add the redirect URI `http://localhost:3020/tt/callback`.
+4. Put the **Client key** and **Client secret** in `.env` as `TIKTOK_CLIENT_KEY=` and `TIKTOK_CLIENT_SECRET=`, then restart the dashboard.
+5. In the dashboard's **TikTok** card, click **Connect TikTok** and log in. The connection lasts about a year and refreshes itself.
+
+While your TikTok app is in **sandbox** (not yet reviewed), only the accounts added as sandbox target users can connect: add your account there. To use it with a live app, submit the app for review with the Upload scope (drafts don't need the Direct Post audit).

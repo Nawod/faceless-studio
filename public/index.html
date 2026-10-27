@@ -79,6 +79,13 @@
     <ul id="checks"></ul>
   </section>
 
+  <section class="card" id="ttCard">
+    <div class="row wrap"><h2>TikTok</h2><label class="toggle"><input type="checkbox" id="ttEnabled"> also send every video to my TikTok drafts</label></div>
+    <p class="muted">Each finished video goes to your TikTok inbox as a draft. TikTok sends you a notification: open it, paste the caption (copy it from the video's panel here), turn on “AI-generated content”, and post, ideally at the same time as YouTube. Fully automatic TikTok posting needs TikTok to audit the app; drafts don't.</p>
+    <div id="ttState"></div>
+    <div class="row gap wrap" id="ttActions"></div>
+  </section>
+
   <section class="card" id="fbCard">
     <div class="row wrap"><h2>Facebook Page</h2><label class="toggle"><input type="checkbox" id="fbEnabled"> also schedule every video as a Reel</label></div>
     <p class="muted">Each video is scheduled as a Facebook Reel in the same publish slot as YouTube. Reels must be 90 s or shorter; longer videos go to YouTube only.</p>
@@ -140,6 +147,12 @@
       <img id="dSheet" alt="QA contact sheet">
     </div>
     <div class="row gap" id="dActions"></div>
+    <div id="dTiktok" hidden>
+      <h3>TikTok caption</h3>
+      <p class="muted" id="dTtNote"></p>
+      <textarea id="dTtCaption" rows="5" readonly></textarea>
+      <button class="sm" id="dTtCopy">Copy caption</button>
+    </div>
     <h3>Script</h3><ol id="dScenes"></ol>
     <h3>Sources</h3><ul id="dSources"></ul>
     <h3>Log</h3><pre id="dLogs"></pre>

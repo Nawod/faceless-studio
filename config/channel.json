@@ -152,5 +152,16 @@
     "batchSize": 20,
     "bankMin": 8,
     "note": "Ideas are researched 20 at a time (one cheap Sonnet call) and stored in the topic pool; each video takes one. The pool refills when fewer than bankMin fresh ideas remain."
+  },
+  "tiktok": {
+    "enabled": true,
+    "hashtags": [
+      "earthhasbugs",
+      "science",
+      "facts",
+      "learnontiktok",
+      "didyouknow"
+    ],
+    "note": "Each video is sent to your TikTok inbox as a draft; open the notification in TikTok, paste the caption shown in the dashboard and post (around the same slot as YouTube)."
   }
 }

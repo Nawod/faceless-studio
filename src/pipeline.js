@@ -17,6 +17,7 @@ import { directFilm } from './director.js';
 import { usage } from './claude.js';
 import { uploadVideo, nextFreeSlot, isConnected } from './youtube.js';
 import { uploadReel, fbConnected } from './facebook.js';
+import { sendDraft, ttConnected, ttCaption } from './tiktok.js';
 
 const VOICE_DELAY = 0.15, TAIL = 2.2;   // tail leaves room for the brand end card
 
@@ -36,6 +37,7 @@ export const STAGES = [
   { id: 'render', label: 'Render & mix', weight: 44 },
   { id: 'upload', label: 'YouTube', weight: 6 },
   { id: 'facebook', label: 'Facebook', weight: 4 },
+  { id: 'tiktok', label: 'TikTok', weight: 3 },
 ];
 
 // Live progress for the dashboard (one run at a time, so one key).
@@ -87,7 +89,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
   const stateFile = path.join(dir, 'state.json');
   const st = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : { done: [] };
   const save = () => fs.writeFileSync(stateFile, JSON.stringify(st, null, 1));
-  const PUBLISH = ['upload', 'facebook'];
+  const PUBLISH = ['upload', 'facebook', 'tiktok'];
   // a finished video is never produced again: once it is rendered, the production stages (which call Claude)
   // count as done — older runs may lack newer stage names such as 'direct' or 'topic'
   const rendered = () => st.done.includes('render') && fs.existsSync(path.join(dir, 'final.mp4'));
@@ -106,7 +108,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
   upload ??= cfg.youtube.autoUpload;
   takeLock(runId);
   usage.reset();
-  usage.forbidden = publishOnly ? (only === 'facebook' ? 'scheduling on Facebook' : 'uploading and scheduling') : null;
+  usage.forbidden = publishOnly ? ({ youtube: 'uploading to YouTube', facebook: 'scheduling on Facebook', tiktok: 'sending to TikTok' }[only] || 'uploading and scheduling') : null;
   if (cancelRequested(runId)) kvSet('cancel', null);
   kvSet('progress', { runId, done: [...st.done], startedAt: Date.now(), at: Date.now() });
   // Which topic: a queue item (your picks, in order) is claimed right away so its style choice applies to this run.
@@ -291,8 +293,8 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
     const publishGate = () => {
       if (!upload) { log.info('upload disabled for this run — video ready in the dashboard'); return false; }
       if (st.held && !forceUpload) { log.warn('not uploading: held for review (use "Upload & schedule" in the dashboard to publish it anyway)'); return false; }
-      const fbOn = cfg.facebook?.enabled !== false && fbConnected();
-      if (!isConnected() && !fbOn) throw new Error('Neither YouTube nor a Facebook Page is connected (see Setup)');
+      const fbOn = cfg.facebook?.enabled !== false && fbConnected(), ttOn = cfg.tiktok?.enabled !== false && ttConnected();
+      if (!isConnected() && !fbOn && !ttOn) throw new Error('No platform is connected (YouTube, Facebook Page or TikTok — see Setup)');
       // a video already scheduled on YouTube keeps that slot on Facebook too (if it's still ahead)
       const yt = st.youtube?.publishAt && new Date(st.youtube.publishAt).getTime() > Date.now() + 20 * 60_000 ? st.youtube.publishAt : null;
       // a slot picked by an earlier attempt that has since passed is replaced by the next free one
@@ -301,7 +303,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       return true;
     };
 
-    if (only !== 'facebook') await stage('upload', async () => {
+    if (!only || only === 'youtube') await stage('upload', async () => {
       if (!publishGate()) return;
       if (!isConnected()) { log.warn('YouTube is not connected — skipping YouTube for this video'); return; }
       setProgress({ detail: 'Uploading to YouTube and scheduling' });
@@ -316,7 +318,7 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       updateRun(runId, { youtube_id: id, publish_at: publishAt });
     });
 
-    await stage('facebook', async () => {
+    if (!only || only === 'facebook') await stage('facebook', async () => {
       if (cfg.facebook?.enabled === false) return;
       if (!publishGate()) return;
       if (!fbConnected()) { log.warn('Facebook Page is not connected — skipping Facebook for this video'); return; }
@@ -334,12 +336,23 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       updateRun(runId, { facebook_id: r.id, fb_publish_at: r.publishAt, ...(st.youtube ? {} : { publish_at: r.publishAt }) });
     });
 
+    // TikTok: the video goes to your TikTok inbox as a draft (open the notification in TikTok, paste the caption, post)
+    if (!only || only === 'tiktok') await stage('tiktok', async () => {
+      if (cfg.tiktok?.enabled === false) return;
+      if (!publishGate()) return;
+      if (!ttConnected()) { log.warn('TikTok is not connected — skipping TikTok for this video'); return; }
+      setProgress({ detail: 'Sending the video to your TikTok drafts' });
+      const r = await sendDraft(st.video, log);
+      st.tiktok = { ...r, caption: ttCaption(st.plan, cfg), postAt: st.publishAt, at: new Date().toISOString() };
+      updateRun(runId, { tiktok_id: r.id });
+    });
+
     addUsage();
     log.info(`Claude usage for this video: ${(st.usage.tokens / 1e6).toFixed(1)}M context + ${(st.usage.out / 1e3).toFixed(0)}k output tokens (≈$${st.usage.usd} at API prices; on your subscription this counts against the usage limit)`);
     if (!st.recorded) { recordTopic(runId, st.plan); st.recorded = true; save(); }
     setQueueStatus(st.assigned?.queueId, 'done', { runId });
-    const held = st.held && !st.youtube && !st.facebookPost;
-    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, film: st.film, usage: st.usage, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
+    const held = st.held && !st.youtube && !st.facebookPost && !st.tiktok;
+    updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, film: st.film, usage: st.usage, tiktok: st.tiktok, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
     log.info('✔ run complete');
     return getRun(runId);
   } catch (e) {

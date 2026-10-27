@@ -12,6 +12,7 @@ import { recentTopics } from './dedup.js';
 import { addIdea, generateIdeas, enqueue, listQueue, dequeue, moveQueued, retryQueued, bankCount, markIdea } from './topics.js';
 import { makeLogger } from './log.js';
 import { LANGUAGES, byId, rotationChoices } from './languages.js';
+import { ttConfigured, ttConnected, ttAccount, ttAuthUrl, ttExchangeCode, ttCheck, ttDisconnect, ttCaption } from './tiktok.js';
 import { fbConfigured, fbConnected, fbPage, fbPages, fbAuthUrl, fbExchangeCode, fbSelectPage, fbUseToken, fbDisconnect, fbCheck } from './facebook.js';
 
 const app = express();
@@ -64,7 +65,7 @@ function jobLabel(kind, p) {
   const style = p.style ? ` · ${p.style.startsWith('film:') ? (byId(p.style.slice(5))?.name || p.style) : p.style.slice(4)}` : '';
   if (kind === 'make') return `New video${style || ' · auto style'}`;
   if (kind === 'queue') return `Queued topic: ${db.prepare('SELECT topic FROM queue WHERE id = ?').get(p.queueId)?.topic || '?'}`;
-  return `${{ resume: 'Resume', restart: 'Start over', upload: 'Upload', facebook: 'Schedule on Facebook' }[kind]}: ${titleOf(p.runId)}`;
+  return `${{ resume: 'Resume', restart: 'Start over', upload: 'Upload to YouTube', facebook: 'Schedule on Facebook', tiktok: 'Send to TikTok drafts' }[kind]}: ${titleOf(p.runId)}`;
 }
 
 /** Add a task. Returns { jobId, position } — position 0 = it starts right away. */
@@ -104,7 +105,17 @@ function runJob(j) {
     if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
     const st = readSt(r.id);   // re-open only the publishing stages a platform doesn't have yet
     st.done = st.done.filter(s => !(s === 'upload' && !r.youtube_id) && !(s === 'facebook' && !r.facebook_id)); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
-    return start({ runId: r.id, upload: true, forceUpload: true, publishOnly: true }, j.id);
+    // a held video's "Upload anyway" publishes everywhere; otherwise this is the YouTube button
+    return start({ runId: r.id, upload: true, forceUpload: true, publishOnly: true, only: r.status === 'held' ? undefined : 'youtube' }, j.id);
+  }
+  if (j.kind === 'tiktok') {
+    if (r.tiktok_id) throw new Error('already sent to TikTok');
+    if (!fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video');
+    if (!ttConnected()) throw new Error('TikTok is not connected');
+    const st = readSt(r.id);
+    st.video ||= path.join(RUNS, r.id, 'final.mp4');
+    st.done = st.done.filter(s => s !== 'tiktok'); fs.writeFileSync(stFile(r.id), JSON.stringify(st));
+    return start({ runId: r.id, upload: true, forceUpload: true, only: 'tiktok', publishOnly: true }, j.id);
   }
   if (j.kind === 'facebook') {
     if (r.facebook_id) throw new Error('already scheduled on Facebook');
@@ -165,6 +176,7 @@ app.get('/api/status', async (req, res) => {
     queue: listQueue().filter(q => q.status === 'waiting').length,
     jobs: db.prepare("SELECT COUNT(*) n FROM jobs WHERE status = 'waiting'").get().n,
     youtube: { connected: isConnected(), channel: kvGet('youtube_channel'), configured: !!(env('YOUTUBE_CLIENT_ID') && env('YOUTUBE_CLIENT_SECRET')) },
+    tiktok: { enabled: cfg.tiktok?.enabled !== false, configured: ttConfigured(), connected: ttConnected(), name: ttAccount()?.name || null },
     facebook: { enabled: cfg.facebook?.enabled !== false, configured: fbConfigured(), connected: fbConnected(), page: fbPage() ? { id: fbPage().id, name: fbPage().name } : null, pages: fbPages() },
     checks: {
       claude: !!bins.claude, claudeToken: claudeAuthPresent(), chrome: !!bins.chrome,
@@ -174,14 +186,14 @@ app.get('/api/status', async (req, res) => {
     recentTopics: recentTopics(cfg.variety.dedupDays).length,
   });
 });
-app.get('/api/runs', (req, res) => res.json(db.prepare('SELECT id, created_at, status, stage, topic, style, title, duration, youtube_id, facebook_id, publish_at, fb_publish_at, error FROM runs ORDER BY created_at DESC LIMIT 100').all()
+app.get('/api/runs', (req, res) => res.json(db.prepare('SELECT id, created_at, status, stage, topic, style, title, duration, youtube_id, facebook_id, tiktok_id, publish_at, fb_publish_at, error FROM runs ORDER BY created_at DESC LIMIT 100').all()
   .map(r => ({ ...r, hasVideo: fs.existsSync(path.join(RUNS, r.id, 'final.mp4')) }))));
 app.get('/api/runs/:id', (req, res) => {
   const r = getRun(req.params.id); if (!r) return res.status(404).end();
   const dir = path.join(RUNS, r.id);
   const plan = fs.existsSync(path.join(dir, 'plan.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'plan.json'), 'utf8')) : null;
   const logs = db.prepare('SELECT at, level, msg FROM logs WHERE run_id = ? ORDER BY id').all(r.id);
-  res.json({ ...r, plan, logs, hasSheet: fs.existsSync(path.join(dir, 'sheet.jpg')), hasVideo: fs.existsSync(path.join(dir, 'final.mp4')) });
+  res.json({ ...r, plan, logs, hasSheet: fs.existsSync(path.join(dir, 'sheet.jpg')), hasVideo: fs.existsSync(path.join(dir, 'final.mp4')), ttCaption: plan ? ttCaption(plan, channel()) : null });
 });
 app.get('/media/:id/:file', (req, res) => {
   if (!/^[\w-]+$/.test(req.params.id) || !['final.mp4', 'sheet.jpg'].includes(req.params.file)) return res.status(400).end();
@@ -282,6 +294,32 @@ app.post('/api/runs/:id/facebook', jobRoute('facebook', req => {
   return { runId: req.params.id };
 }));
 
+
+app.post('/api/runs/:id/tiktok', jobRoute('tiktok', req => {
+  const r = getRun(req.params.id);
+  if (r?.tiktok_id) throw new Error('this video is already in your TikTok drafts');
+  if (r && !fs.existsSync(path.join(RUNS, r.id, 'final.mp4'))) throw new Error('this run has no finished video yet');
+  if (!ttConnected()) throw new Error('connect TikTok first (TikTok card)');
+  if (channel().tiktok?.enabled === false) throw new Error('TikTok is switched off (TikTok card)');
+  return { runId: req.params.id };
+}));
+
+// ---------- TikTok (Login Kit → drafts in your TikTok inbox) ----------
+const ttRedirect = () => `http://localhost:${PORT}/tt/callback`;
+app.get('/tt/start', (req, res) => {
+  if (!ttConfigured()) return res.status(400).send('Set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in .env first (see README → TikTok).');
+  res.redirect(ttAuthUrl(ttRedirect(), crypto.randomBytes(12).toString('hex')));
+});
+app.get('/tt/callback', async (req, res) => {
+  try {
+    if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
+    const r = await ttExchangeCode(String(req.query.code), ttRedirect(), String(req.query.state || ''));
+    res.send(`<p style="font-family:sans-serif">Connected to TikTok${r.name ? ` as <b>${r.name.replace(/</g, '&lt;')}</b>` : ''}. You can close this tab.</p><script>setTimeout(()=>location='/',1500)</script>`);
+  } catch (e) { res.status(500).send(`<p style="font-family:sans-serif">TikTok login error: ${String(e.message).replace(/</g, '&lt;')}</p>`); }
+});
+app.post('/api/tiktok/check', async (req, res) => { try { res.json(await ttCheck()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/tiktok/disconnect', (req, res) => { ttDisconnect(); res.json({ ok: true }); });
+app.put('/api/tiktok', (req, res) => { const c = channel(); c.tiktok = { ...(c.tiktok || {}), enabled: !!req.body?.enabled }; saveChannel(c); res.json(c.tiktok); });
 
 // ---------- Facebook Page (Facebook Login → never-expiring Page token; or paste a Page token) ----------
 const fbRedirect = () => `http://localhost:${PORT}/fb/callback`;

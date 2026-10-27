@@ -85,7 +85,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS jobs (
 )`);
 
 try { db.exec('ALTER TABLE runs ADD COLUMN facebook_id TEXT'); } catch {}
-try { db.exec('ALTER TABLE runs ADD COLUMN fb_publish_at TEXT'); } catch {}   // the Reel's own slot (YouTube's is publish_at)   // Facebook Page Reel id
+try { db.exec('ALTER TABLE runs ADD COLUMN fb_publish_at TEXT'); } catch {}
+try { db.exec('ALTER TABLE runs ADD COLUMN tiktok_id TEXT'); } catch {}   // TikTok draft (publish_id)   // the Reel's own slot (YouTube's is publish_at)   // Facebook Page Reel id
 
 export const now = () => new Date().toISOString();
 
