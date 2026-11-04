@@ -19,6 +19,8 @@ import { isConnected } from './youtube.js';
 import { fbConnected } from './facebook.js';
 import { ttConnected } from './tiktok.js';
 import { toYouTube, toFacebook, toTikTok } from './publish.js';
+import { cleanRun } from './cleanup.js';
+import { renderFrames as renderBlender, build as buildBlender } from './tools/blender3d.js';
 
 const VOICE_DELAY = 0.15, TAIL = 2.2;   // tail leaves room for the brand end card
 
@@ -275,11 +277,33 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
     await stage('render', async () => {
       const { spec, html, seed } = build();
       const silent = path.join(dir, 'video_silent.mp4');
+      // a 3D film: Blender renders every frame of the 3D world first (resumable), the composite pass puts the 2D layer on top
+      const b3d = st.film?.ok && fs.existsSync(path.join(dir, 'blender', 'scene.py'));
+      if (b3d) {
+        setProgress({ stagePct: 0, detail: 'Building the 3D scene in Blender' });
+        await buildBlender(dir);
+        const total = Math.ceil(spec.duration * 30) + 1, t0 = Date.now();
+        let n = 0, seen = new Set();
+        const frameDir = path.join(dir, 'blender', 'frames');
+        const already = fs.existsSync(frameDir) ? fs.readdirSync(frameDir).length : 0;
+        await renderBlender(dir, null, frameDir, {
+          onFrame: f => {
+            if (seen.has(f)) return; seen.add(f); n++;
+            if (n % 30 === 0) {
+              const done = already + n, eta = Math.round((Date.now() - t0) / n * (total - done) / 1000);
+              setProgress({ stagePct: 0.6 * done / total, detail: `Rendering the 3D world in Blender — frame ${done.toLocaleString()} / ${total.toLocaleString()}`, eta });
+            }
+          },
+          shouldStop: () => cancelRequested(runId),
+        }).catch(e => { throw e.cancelled ? new Cancelled() : e; });
+        log.info(`3D frames rendered in ${((Date.now() - t0) / 60000).toFixed(1)} min (${n} new)`);
+      }
+      const base = b3d ? 0.6 : 0, span = b3d ? 0.3 : 0.9;
       await renderVideo(html, {
         duration: spec.duration, fps: cfg.video.fps, W: spec.W, H: spec.H, out: silent, log,
         workers: !st.film?.ok && ['documentary', 'newsflash'].includes(st.plan.style) ? 3 : undefined,   // footage pages are heavier
         shouldCancel: () => cancelRequested(runId) && new Cancelled(),
-        onProgress: (done, total, etaS) => setProgress({ stagePct: 0.9 * done / total, detail: `Rendering frames ${done.toLocaleString()} / ${total.toLocaleString()}`, eta: etaS }),
+        onProgress: (done, total, etaS) => setProgress({ stagePct: base + span * done / total, detail: `${b3d ? 'Compositing captions over the 3D frames' : 'Rendering frames'} ${done.toLocaleString()} / ${total.toLocaleString()}`, eta: etaS }),
       });
       setProgress({ stagePct: 0.92, detail: 'Composing music and sound effects', eta: null });
       const { music, sfx } = await makeMusicAndSfx(dir, spec.duration, st.plan.mood || 'curious', seed, sfxEvents(spec), log);
@@ -287,6 +311,8 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
       const mixed = await mixAudio({ voice: path.join(dir, 'voice.mp3'), music, sfx, voiceDelay: VOICE_DELAY, seconds: spec.duration, out: path.join(dir, 'mix.wav') });
       st.video = await mux(silent, mixed, path.join(dir, 'final.mp4'));
       fs.rmSync(silent, { force: true });
+      // the 3D frames are in final.mp4 now: free the disk (≈0.5 GB per film); scene.py and scene.blend stay for re-renders
+      if (b3d) for (const d of ['frames', 'stills']) fs.rmSync(path.join(dir, 'blender', d), { recursive: true, force: true, maxRetries: 5 });
       updateRun(runId, { video_path: st.video, duration: spec.duration });
     });
 
@@ -309,6 +335,11 @@ export async function runPipeline({ runId = newRunId(), upload, planFile, style,
     setQueueStatus(st.assigned?.queueId, 'done', { runId });
     const held = st.held && !st.youtube && !st.facebookPost && !st.tiktok;
     updateRun(runId, { status: held ? 'held' : 'done', stage: 'done', error: held ? `Held for review — ${st.held}` : null, meta: { qa: st.qa, film: st.film, usage: st.usage, tiktok: st.tiktok, voice: st.voice?.voice, sources: st.plan.sources, credits: st.credits } });
+    // the video is finished: delete its leftovers (stock clips, WAVs, voice, review images, 3D scene/frames…), keep final.mp4
+    if (st.video && !planFile) {
+      try { const freed = cleanRun(runId); if (freed) log.info(`cleanup: freed ${(freed / 1e6).toFixed(0)} MB of leftovers (final.mp4 kept)`); }
+      catch (e) { log.warn(`cleanup skipped: ${e.message}`); }
+    }
     log.info('✔ run complete');
     return getRun(runId);
   } catch (e) {

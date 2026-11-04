@@ -37,10 +37,14 @@ The prompt lists the languages used recently: **do not repeat them**. Then read 
 | **Retro neon / synthwave** | Symmetry, giant sun disc, skyline silhouette, reflections; violet/pink (11) | space, future, technology, night, light |
 | **Iris vignette worlds** | Small worlds build themselves inside circles on a clean field; circles open, multiply and connect (12) | "imagine", comparisons, cause → effect chains |
 | **Character + line-drawn world** | Saturated single-colour background, the world in thin lines, one filled character, props draw themselves (15) | inventions, engineering, "how it works" with a human touch |
+| **Vector cutaway explainer** | Clean flat vector machines with outlines, cut open on a pastel landscape; a big question headline; a word-box caption with one coloured word (20) | how vehicles, machines and inventions work |
 | **Paper-cutout diorama** | Layered paper planes with soft shadows, stepped 12 fps motion | history, places, folk stories |
 | **Generative nature (p5)** | Particles, flow fields, waves, light, cells, swarms driven by noise | weather, fluids, sound, micro-worlds (use as a layer inside one of the above) |
 
 First line of `wiki/plan.md` must be exactly: `Language: <name from the table>`.
+
+**3D languages** (Blender): 3D studio explainer, X-ray hologram 3D, Cinematic 3D, Cosmic 3D and Toy motion graphics 3D are built in
+Blender under the 2D layer. If you pick one, read `engines/blender/PLAYBOOK3D.md` and follow it.
 
 ### Signature transitions (from the references; use 2–3 per film, all motivated)
 - **Colour cut on action:** the background colour flips on the hit/beat while the character holds the pose (08, 10).

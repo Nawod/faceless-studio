@@ -197,7 +197,7 @@ async function loadStyles() {
   $('#gallery').innerHTML = langs.map(l => {
     const ref = l.refs[0];
     const thumb = ref ? `style="background-image:url('/kit-refs/thumbs/${ref}.jpg')"` : '';
-    const badge = l.recentlyUsed ? '<span class="badge">used recently</span>' : '';
+    const badge = (l.engine === '3d' ? '<span class="badge b3d">3D · Blender</span>' : '') + (l.recentlyUsed ? '<span class="badge">used recently</span>' : '');
     return `<article class="sty ${l.enabled ? '' : 'disabled'}">
       <div class="thumb ${ref ? '' : 'gen-' + l.id}" ${thumb} role="img" aria-label="${esc(l.name)} reference">${badge}</div>
       <div class="body"><b>${esc(l.name)}</b><p>${esc(l.blurb)}</p><div class="best">Best for: ${esc(l.bestFor)}</div>

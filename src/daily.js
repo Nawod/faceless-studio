@@ -3,6 +3,7 @@
 import { runPipeline, todayStatus, reconcileStaleRuns, lockOwnerAlive } from './pipeline.js';
 import { kvGet } from './db.js';
 import { channel } from './config.js';
+import { cleanAll } from './cleanup.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MAX_LIMIT_WAIT = 6 * 3600_000;   // the task may run 10 h; wait out a usage-limit reset up to 6 h
@@ -45,6 +46,7 @@ try {
     console.log(`making video ${t.made + 1} of ${t.target} (attempt ${attempts}/${budget})`);
     await one().catch(e => { if (e.limit) attempts--; console.error(e.cancelled ? 'CANCELLED' : e.limit ? 'PAUSED:' : 'FAILED:', e.message); });
   }
+  try { cleanAll({ log: { info: m => console.log(m) } }); } catch (e) { console.error('cleanup:', e.message); }
   process.exit(0);
 } catch (e) {
   console.error('FAILED:', e.message);

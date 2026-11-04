@@ -115,9 +115,27 @@
     return box;
   }
 
+  // ---------- 3D layer: the Blender frames of this film, under everything else ----------
+  // Film.backdrop() shows blender/frames/f_NNNN.jpg for the current time (falls back to blender/stills/ while reviewing,
+  // so a sheet can be checked before the full 3D render exists). Frame f = time (f-1)/fps.
+  function backdrop({ z = 0, fps = 30, dir = '../blender' } = {}) {
+    const img = el('img', { style: { position: 'absolute', inset: '0', width: W + 'px', height: H + 'px', objectFit: 'cover', zIndex: z } });
+    let shown = '';
+    const load = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+    onFrame(async t => {
+      const f = String(Math.max(1, Math.round(t * fps) + 1)).padStart(4, '0');
+      if (shown === f) return;
+      const hit = (await load(`${dir}/frames/f_${f}.jpg`)) || (await load(`${dir}/stills/f_${f}.jpg`));
+      img.style.visibility = hit ? 'visible' : 'hidden';
+      if (hit) { img.src = hit.src; try { await img.decode(); } catch {} }
+      shown = f;
+    });
+    return img;
+  }
+
   window.Film = {
     S, W, H, DUR: S.duration, scenes, words: S.words, subject: S.subject, palette: S.palette, title: S.title,
-    tl, gsap: gs, at, sceneAt, wordTime, talk, onFrame, ready, el, svgLayer, canvasLayer, p5: p5Layer, grain, vignette, captions,
+    tl, gsap: gs, at, sceneAt, wordTime, talk, onFrame, ready, el, svgLayer, canvasLayer, p5: p5Layer, grain, vignette, captions, backdrop,
     rng, hash, noise, clamp, lerp, inv, step,
   };
 
@@ -126,6 +144,6 @@
   Object.defineProperty(window, '__ready', { configurable: true, get: () => Promise.all(readies), set: p => readies.push(p) });
   window.render = async t => {
     tl.seek(Math.max(0, t), false);
-    for (const fn of frameFns) fn(t);
+    for (const fn of frameFns) { const r = fn(t); if (r && r.then) await r; }   // async hooks (e.g. the 3D backdrop image) finish before the screenshot
   };
 })();

@@ -15,6 +15,15 @@ import { byId, rotationChoices } from './languages.js';
 
 const run = promisify(execFile);
 
+// the 3D layer (blender/scene.py → Blender stills/frames); only used when the film has one
+async function b3d(dir, ...args) {
+  try {
+    const { stdout } = await run(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(ROOT, 'src', 'tools', 'blender3d.js'), dir, ...args.map(String)], { cwd: dir, timeout: 15 * 60_000, windowsHide: true });
+    return { ok: true, out: stdout.trim() };
+  } catch (e) { return { ok: false, out: String(e.stderr || e.stdout || e.message).slice(0, 1200) }; }
+}
+const has3d = dir => fs.existsSync(path.join(dir, 'blender', 'scene.py'));
+
 async function frames(dir, ...args) {
   const html = path.join(dir, 'film', 'index.html');
   try {
@@ -49,16 +58,26 @@ function watchActivity(dir, label, setProgress) {
 
 // Snapshot / restore everything the director wrote (film.js, parts/, film.css): a later round can regress.
 const AUTHORED = f => !['index.html', 'spec.js', '.best'].includes(f) && !f.endsWith('.best.js');
+// A 3D film's scene code (blender/*.py) belongs to the same version as its 2D layer, so it is snapshotted with it.
+const pyFiles = dir => (fs.existsSync(path.join(dir, 'blender')) ? fs.readdirSync(path.join(dir, 'blender')).filter(f => f.endsWith('.py')) : []);
 function snapshot(dir) {
   const film = path.join(dir, 'film'), best = path.join(film, '.best');
   fs.rmSync(best, { recursive: true, force: true }); fs.mkdirSync(best);
   for (const f of fs.readdirSync(film).filter(AUTHORED)) fs.cpSync(path.join(film, f), path.join(best, f), { recursive: true });
+  const b = pyFiles(dir);
+  if (b.length) { fs.mkdirSync(path.join(best, '.blender')); for (const f of b) fs.copyFileSync(path.join(dir, 'blender', f), path.join(best, '.blender', f)); }
 }
 function restore(dir) {
   const film = path.join(dir, 'film'), best = path.join(film, '.best');
   if (!fs.existsSync(best)) return;
   for (const f of fs.readdirSync(film).filter(AUTHORED)) fs.rmSync(path.join(film, f), { recursive: true, force: true });
-  for (const f of fs.readdirSync(best)) fs.cpSync(path.join(best, f), path.join(film, f), { recursive: true });
+  for (const f of fs.readdirSync(best).filter(f => f !== '.blender')) fs.cpSync(path.join(best, f), path.join(film, f), { recursive: true });
+  const saved = path.join(best, '.blender');
+  if (fs.existsSync(saved)) {
+    for (const f of pyFiles(dir)) fs.rmSync(path.join(dir, 'blender', f), { force: true });
+    for (const f of fs.readdirSync(saved)) fs.copyFileSync(path.join(saved, f), path.join(dir, 'blender', f));
+    fs.rmSync(path.join(dir, 'blender', 'scene.blend'), { force: true });   // rebuilt from the restored code
+  }
 }
 
 function scriptTable(spec) {
@@ -84,11 +103,16 @@ async function review(dir, spec, round, log) {
   // only this round's images: drop the director's own working strips
   const rv = path.join(dir, 'review');
   if (fs.existsSync(rv)) for (const f of fs.readdirSync(rv)) if (/^strip_/.test(f)) fs.rmSync(path.join(rv, f), { recursive: true, force: true });
-  const sheet = await frames(dir, 'sheet', 'auto');
-  if (!sheet.ok) return { score: 0, verdict: 'revise', reading: '', problems: [{ where: 'whole film', problem: `the film does not render: ${sheet.out}`, fix: 'fix the script error' }] };
   // strips: the hook, a middle action, the payoff
   const mid = spec.scenes[Math.floor(n / 2)], pay = spec.scenes[Math.max(0, n - 3)];
   const strips = [[0, 2.4], [mid.start, Math.min(mid.end, mid.start + 2.4)], [pay.start, Math.min(pay.end, pay.start + 2.4)]];
+  if (has3d(dir)) {   // a 3D film: render the 3D stills for exactly these moments first, so the composite shows them
+    const s3 = await b3d(dir, 'stills', 'auto');
+    if (!s3.ok) return { score: 0, verdict: 'revise', reading: '', problems: [{ where: '3D scene', problem: `blender/scene.py does not build or render: ${s3.out}`, fix: 'fix the Blender script error' }] };
+    for (const [a, b] of strips) await b3d(dir, 'strip', a.toFixed(2), b.toFixed(2), 8);
+  }
+  const sheet = await frames(dir, 'sheet', 'auto');
+  if (!sheet.ok) return { score: 0, verdict: 'revise', reading: '', problems: [{ where: 'whole film', problem: `the film does not render: ${sheet.out}`, fix: 'fix the script error' }] };
   for (const [a, b] of strips) await frames(dir, 'strip', a.toFixed(2), b.toFixed(2), 8);
   const files = fs.readdirSync(path.join(dir, 'review')).filter(f => /^strip_.*\.jpg$|^sheet\.jpg$/.test(f)).map(f => `review/${f}`);
   const prompt = `You are reviewing a ${d.toFixed(0)}-second vertical animated YouTube Short (review round ${round}). Work read-only and look ONLY at these images:
@@ -114,12 +138,22 @@ export async function directFilm({ dir, spec, plan, log, rounds = Number(env('DI
   const kit = path.join(ROOT, 'engines', 'kit');
   const toStudio = path.relative(dir, ROOT).replace(/\\/g, '/');            // e.g. ../../..
   const tool = `node ${toStudio}/src/tools/frames.js film/index.html`;
+  const tool3d = `node ${toStudio}/src/tools/blender3d.js .`;
   // the visual language: chosen by the owner in the dashboard, or picked by the director from the rotation
   const pick = byId(forced);
   const { choices, recent } = rotationChoices();
   const languageRule = pick
     ? `The channel owner chose the visual language for this film: **${pick.name}**. Use it (write \`Language: ${pick.name}\` in wiki/plan.md) and Read its reference sheets: ${pick.refs.map(r => `${toStudio}/engines/kit/refs/${r}.jpg`).join(', ') || '(none; follow the playbook description)'}.`
-    : `Pick the visual language that best fits this story from: ${choices.map(l => l.name).join(' · ')}.${recent.length ? ` Recently used, so avoid: ${recent.join(', ')}.` : ''} Then Read its reference sheets in ${toStudio}/engines/kit/refs/.`;
+    : `Pick the visual language that best fits this story from: ${choices.map(l => `${l.name}${l.engine === '3d' ? ' (3D)' : ''}`).join(' · ')}.${recent.length ? ` Recently used, so avoid: ${recent.join(', ')}.` : ''} Then Read its reference sheets in ${toStudio}/engines/kit/refs/.`;
+  // 3D languages: Blender builds the world under the 2D layer
+  const lang3d = pick?.engine === '3d';
+  const threeD = `
+${lang3d ? 'This is a 3D film' : 'If you pick a 3D language (marked 3D)'}: Read ${toStudio}/engines/blender/PLAYBOOK3D.md first. Write blender/scene.py with bkit (the 3D world)
+and film/film.js starting with Film.backdrop() (captions, keyword, chips, arrows on top). 3D commands (Blender, headless; each prints its time):
+  ${tool3d} build                    (build scene.py; prints Python errors)
+  ${tool3d} stills auto              (half-size 3D stills at the sheet times → review/b3d_sheet.jpg; also feeds the composite sheet)
+  ${tool3d} strip <from> <to> 8      (3D motion strip → review/b3d_strip_<from>.jpg)
+Render the 3D stills for the same times BEFORE a composite frames.js sheet/strip. Never run "render": the pipeline renders every frame later.`;
   let last = null, best = null;
   // resuming an interrupted run: a finished first build goes straight to review; an unfinished one gets completed
   const builtMark = path.join(dir, 'wiki', '.round1-done');
@@ -138,7 +172,7 @@ Protect: ${(last.protect || []).join(' | ') || '—'}
 Score ${last.score}/10. Read wiki/plan.md and wiki/review-log.md, then make the highest-value changes (a whole passage may need re-staging, not a parameter tweak), re-render and check them yourself.` : '';
     const opening = r === 1
       ? `You are the animation director for this Short. Read first: ${toStudio}/engines/kit/PLAYBOOK.md, ${toStudio}/engines/kit/README.md, ${toStudio}/engines/kit/refs/INDEX.md, and (for API usage only, not a style to copy) ${toStudio}/engines/kit/examples/carrot-walk.js.
-${languageRule}`
+${languageRule}${threeD}`
       : `You are the animation director for this Short, back for revision round ${r}. Keep the visual language you chose (wiki/plan.md).`;
     const prompt = `${opening}
 
@@ -164,8 +198,8 @@ Finish with a 3-line summary: craft claim, visual language, what is still weakes
     else try {
       const stop = watchActivity(dir, `Animation director — round ${r}/${rounds}`, setProgress);
       const summary = await askClaude(prompt, {
-        model: env('CLAUDE_DIRECTOR_MODEL', 'opus'), cwd: dir, addDirs: [kit], label: `director ${r}`, maxTurns: r === 1 ? 140 : 70, timeoutMs: 50 * 60_000, retries: 0, log,
-        tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', `Bash(${tool}:*)`],
+        model: env('CLAUDE_DIRECTOR_MODEL', 'opus'), cwd: dir, addDirs: [kit, path.join(ROOT, 'engines', 'blender')], label: `director ${r}`, maxTurns: r === 1 ? 140 : 70, timeoutMs: 50 * 60_000, retries: 0, log,
+        tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', `Bash(${tool}:*)`, `Bash(${tool3d} build:*)`, `Bash(${tool3d} stills:*)`, `Bash(${tool3d} strip:*)`],
       }).finally(stop);
       log.info(`director round ${r}: ${String(summary).replace(/\s+/g, ' ').slice(0, 300)}`);
       if (r === 1) fs.writeFileSync(builtMark, new Date().toISOString());

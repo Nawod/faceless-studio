@@ -14,6 +14,13 @@ export const LANGUAGES = [
   { id: 'synthwave', name: 'Retro neon / synthwave', refs: ['11-synthwave-ride'], blurb: 'Symmetry, a giant sun disc, skyline silhouettes and reflections in violet and pink.', bestFor: 'space, future, technology, light' },
   { id: 'iris-worlds', name: 'Iris vignette worlds', refs: ['12-iris-world'], blurb: 'Small worlds build themselves inside circles that open, multiply and connect.', bestFor: '"imagine…", comparisons, cause and effect' },
   { id: 'line-drawn-world', name: 'Character + line-drawn world', refs: ['15-line-build-ikea'], blurb: 'A saturated field with the world in thin lines; one filled character, and props draw themselves.', bestFor: 'inventions, how things work' },
+  { id: 'vector-cutaway', name: 'Vector cutaway explainer', refs: ['20-vector-cutaway'], blurb: 'Clean flat vector machines cut open on a pastel landscape, with a big question headline.', bestFor: 'how vehicles, machines and inventions work' },
+  // 3D (Blender) — rendered by EEVEE under the 2D captions layer; adds ~20–40 min of rendering per film
+  { id: '3d-studio', engine: '3d', name: '3D studio explainer', refs: ['16-3d-studio-explainer'], blurb: 'Clean 3D objects on a soft studio sweep, assembling and exploding, with keyword captions and chips.', bestFor: 'space missions, engineering, how things are built' },
+  { id: '3d-xray', engine: '3d', name: 'X-ray hologram 3D', refs: ['18-3d-xray-hologram'], blurb: 'Glowing see-through bodies and machines on a holographic grid, showing the hidden mechanism.', bestFor: 'inside the body, inside machines, safety physics' },
+  { id: '3d-cinematic', engine: '3d', name: 'Cinematic 3D', refs: ['17-3d-cinematic'], blurb: 'Moody realistic 3D sets with practical lights, depth of field and slow dolly moves.', bestFor: 'true stories, accidents, labs and tunnels' },
+  { id: '3d-cosmic', engine: '3d', name: 'Cosmic 3D', refs: ['19-3d-cosmic'], blurb: 'Planets, the Sun and orbits in real 3D space, with scale reveals.', bestFor: 'space, scale, astronomy' },
+  { id: '3d-toy', engine: '3d', name: 'Toy motion graphics 3D', refs: [], blurb: 'A toy-shaped hero hops across glowing buttons on black glossy glass, building the result.', bestFor: 'how software, tools and processes work' },
   { id: 'paper-cutout', name: 'Paper-cutout diorama', refs: [], blurb: 'Layered paper planes with soft shadows and stepped 12 fps motion.', bestFor: 'history, places, folk stories' },
   { id: 'generative-nature', name: 'Generative nature (p5)', refs: [], blurb: 'Particles, flow fields, waves, light and swarms driven by noise.', bestFor: 'weather, fluids, sound, micro-worlds' },
 ];

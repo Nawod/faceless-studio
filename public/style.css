@@ -118,6 +118,9 @@ form.inline{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}form.inline input
 .sty.disabled .thumb{filter:grayscale(1) opacity(.5)}
 .thumb{position:relative;aspect-ratio:4/3;background-color:var(--line);background-repeat:no-repeat;background-size:cover;background-position:center}
 .thumb .badge{position:absolute;left:8px;top:8px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#000a;color:#fff}
+.thumb .badge+.badge{left:auto;right:8px}
+.thumb .badge.b3d{background:#2747D8}
+.thumb.gen-3d-toy{background:radial-gradient(circle at 50% 62%,#C96442 0 9%,transparent 10%),radial-gradient(ellipse at 50% 80%,#2E6BFF55 0 22%,transparent 23%),linear-gradient(180deg,#0B0B0F 0 60%,#15161c 60%)}
 .thumb.gen-paper-cutout{background:radial-gradient(circle at 30% 70%,#e9c46a 0 18%,transparent 19%),linear-gradient(170deg,#f4a261 0 40%,#2a9d8f 40% 62%,#264653 62%)}
 .thumb.gen-generative-nature{background:radial-gradient(circle at 20% 30%,#7ae7c7 0 3%,transparent 4%),radial-gradient(circle at 70% 60%,#7aa7e7 0 5%,transparent 6%),radial-gradient(circle at 45% 80%,#e77ab0 0 4%,transparent 5%),conic-gradient(from 200deg at 50% 50%,#0b132b,#1c2541,#3a506b,#0b132b)}
 .sty .body{padding:10px 12px 12px;display:flex;flex-direction:column;gap:6px;flex:1}

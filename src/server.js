@@ -10,6 +10,7 @@ import { runPipeline, todayStatus, newRunId, reconcileStaleRuns, lockOwnerAlive,
 import { authUrl, exchangeCode, isConnected, channelInfo, nextFreeSlot } from './youtube.js';
 import { recentTopics } from './dedup.js';
 import { publishRun } from './publish.js';
+import { cleanAll } from './cleanup.js';
 import { addIdea, generateIdeas, enqueue, listQueue, dequeue, moveQueued, retryQueued, bankCount, markIdea } from './topics.js';
 import { makeLogger } from './log.js';
 import { LANGUAGES, byId, rotationChoices } from './languages.js';
@@ -155,6 +156,11 @@ function pump() {
   }
 }
 setInterval(pump, 5000).unref?.();
+
+// disk housekeeping: leftovers of finished videos and runs abandoned for 3+ days (at start, then every 6 h)
+const sweep = () => { try { if (!producingRun()) cleanAll({ busyRunId: null, log: { info: m => console.log(m) } }); } catch (e) { console.error('cleanup:', e.message); } };
+setTimeout(sweep, 30_000).unref?.();
+setInterval(sweep, 6 * 3600_000).unref?.();
 
 // every action button: add a task and say where it stands
 const jobRoute = (kind, paramsOf) => (req, res) => {

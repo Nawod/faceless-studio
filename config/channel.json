@@ -94,7 +94,7 @@
     "rate": "+10%"
   },
   "schedule": {
-    "enabled": true,
+    "enabled": false,
     "runAtLocal": "21:15",
     "videosPerDay": 3,
     "publishSlotsUTC": [
@@ -134,7 +134,13 @@
       "iris-worlds": true,
       "line-drawn-world": true,
       "paper-cutout": true,
-      "generative-nature": true
+      "generative-nature": true,
+      "vector-cutaway": true,
+      "3d-studio": true,
+      "3d-xray": true,
+      "3d-cinematic": true,
+      "3d-cosmic": true,
+      "3d-toy": true
     }
   },
   "facebook": {
