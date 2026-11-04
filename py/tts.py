@@ -10,7 +10,7 @@ Writes the audio and a JSON list of {"word", "start", "end", "seg"} in seconds.
 edge:   Microsoft Edge neural voices via edge-tts (free).
 google: Google Cloud TTS (GOOGLE_TTS_API_KEY env), SSML <mark> per word for timings.
 """
-import argparse, asyncio, base64, json, os, re, subprocess, sys, tempfile, urllib.request
+import argparse, asyncio, base64, json, os, re, subprocess, sys, tempfile, time, urllib.request
 
 
 async def edge(text, voice, rate, out_mp3, pitch="+0Hz"):
@@ -65,13 +65,36 @@ def duration(path):
     return float(out or 0)
 
 
+def edge_retry(text, voice, rate, out_mp3, pitch="+0Hz"):
+    """The free Edge service sometimes answers a request with no audio (NoAudioReceived) or drops the connection.
+    Retry with a pause; then try once without the pitch/rate tweak; last resort a second voice, so one glitch
+    never fails a whole video."""
+    tries = [(voice, rate, pitch, 0), (voice, rate, pitch, 3), (voice, rate, pitch, 8), (voice, rate, pitch, 20),
+             (voice, "+0%", "+0Hz", 5), ("en-US-GuyNeural" if "Guy" not in voice else "en-US-AndrewNeural", rate, "+0Hz", 5)]
+    last = None
+    for v, r, p, wait in tries:
+        if wait:
+            time.sleep(wait)
+        try:
+            w = asyncio.run(edge(text, v, r, out_mp3, p))
+            if w and os.path.getsize(out_mp3) > 0:
+                if v != voice:
+                    print(f"warning: used fallback voice {v} for: {text[:50]}", file=sys.stderr)
+                return w
+            last = RuntimeError("no word timings")
+        except Exception as e:      # NoAudioReceived, WebSocket errors, timeouts
+            last = e
+            print(f"edge-tts retry ({type(e).__name__}): {text[:50]}", file=sys.stderr)
+    raise last
+
+
 def segments(segs, engine, voice, out_mp3):
     tmp = tempfile.mkdtemp(prefix="tts_")
     files, words, t = [], [], 0.0
     for i, s in enumerate(segs):
         part = os.path.join(tmp, f"seg_{i:03d}.mp3")
         rate, pitch = s.get("rate", "+0%"), s.get("pitch", "+0Hz")
-        w = asyncio.run(edge(s["text"], voice, rate, part, pitch)) if engine == "edge" else google(s["text"], voice, rate, part, pitch)
+        w = edge_retry(s["text"], voice, rate, part, pitch) if engine == "edge" else google(s["text"], voice, rate, part, pitch)
         # trim the leading/trailing silence each clip carries so the delivery stays tight
         lead = max(0.0, (w[0]["start"] if w else 0) - 0.04)
         trimmed = os.path.join(tmp, f"seg_{i:03d}.wav")
@@ -105,7 +128,7 @@ def main():
         words = segments(json.load(open(a.segments, encoding="utf-8")), a.engine, a.voice, a.out_mp3)
     else:
         text = open(a.text_file, encoding="utf-8").read().strip()
-        words = asyncio.run(edge(text, a.voice, a.rate, a.out_mp3)) if a.engine == "edge" else google(text, a.voice, a.rate, a.out_mp3)
+        words = edge_retry(text, a.voice, a.rate, a.out_mp3) if a.engine == "edge" else google(text, a.voice, a.rate, a.out_mp3)
     if not words:
         sys.exit("no word timings returned")
     json.dump(words, open(a.out_json, "w", encoding="utf-8"), indent=0)

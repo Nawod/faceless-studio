@@ -13,6 +13,13 @@ Your film is **one JavaScript file** (`film.js`, plus optional `film.css`) loade
 
 Canvas: **1080×1920** (`Film.W`, `Film.H`), 30 fps, `Film.DUR` seconds. Fonts available: Inter (400–900), Anton, Archivo Black, Patrick Hand, Gaegu, Space Mono, DM Serif Display, Courier Prime. No network: everything is drawn by your code.
 
+## Splitting the film into parts
+
+`film/film.js` holds the shared setup (palette, layers, cast and rigs, captions) and ends with
+`Film.parts = ['parts/01-hook.js', 'parts/02-lab.js', …]`. The page loads the parts in that order, after film.js.
+Everything defined at the top level of film.js (`const`/`function`) is visible to the parts. Keep each part
+under about 15 KB, so a revision only touches one small file.
+
 ## The one rule: time is a pure function
 
 The renderer calls `render(t)` for frames **in any order, in parallel browsers**. So:

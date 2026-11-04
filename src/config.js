@@ -3,6 +3,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import net from 'node:net';
+
+// Node gives each IPv4/IPv6 address only 250 ms to connect; Facebook's servers take ~1 s from here, so every request
+// to graph.facebook.com / rupload.facebook.com timed out. Allow a slower first connect.
+net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DATA = path.join(ROOT, 'data');

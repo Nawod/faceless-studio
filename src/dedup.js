@@ -5,7 +5,8 @@ import { db, now } from './db.js';
 const STOP = new Set(('a an and are as at be but by can could did do does for from had has have how i if in into is it its just ' +
   'like make made more most no not of on or our out over so some such than that the their them then there these they this ' +
   'those to too up us was we were what when where which who why will with would you your really actually ever never ' +
-  'facts fact explained secret secrets truth story stories amazing incredible insane crazy weird strange').split(' '));
+  'facts fact explained secret secrets truth story stories amazing incredible insane crazy weird strange ' +
+  'one two three four five six seven eight nine ten hundred thousand million billion first second every new').split(' '));
 
 const stem = w => w.replace(/(ies)$/, 'y').replace(/(ing|ed|es|s)$/, '').replace(/(.)\1$/, '$1');
 

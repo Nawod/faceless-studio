@@ -22,6 +22,12 @@ Never copy their characters, brands or text.
 | 13-plant-process | **Step-by-step process** | Flat green field, one small stage at the bottom. Tools enter, act and leave (trowel digs, seed drops, can waters). Then the growth is staged: sprout → leaves → flower. One action at a time, crystal clear. |
 | 14-rocket-moon-type | **Night-sky type reveal** | Black starfield, a rocket rises with a smoke trail, the camera follows up to the moon, and the moon's surface becomes hand-lettered type. Space + playful lettering. |
 | 15-line-build-ikea | **Character + line-drawn world** | Saturated single-colour background (yellow) with the room drawn in thin dark lines only. The character is the only filled shape (blue + white). Props build themselves as white/blue line drawings in the character's hands (DrawSVG). It ends on the character's proud pose. |
+| 16-3d-studio-explainer | **3D studio explainer** (Blender) | Clean primitives (gears, bolts, tubes, rocks, a capsule) under soft studio light; one big centred keyword, a small sentence caption at the top, pill chips and number/date cards in 2D. See engines/blender/PLAYBOOK3D.md |
+| 17-3d-cinematic | **Cinematic 3D** (Blender) | Moody realism: tunnel with rows of practical lights, night street, rim light and depth of field, slow dolly; caption keyword over the darkest area |
+| 18-3d-xray-hologram | **X-ray hologram 3D** (Blender) | Black world, see-through glowing X-ray bodies and machines with one solid inner part showing the mechanism, holographic grid floor, glow |
+| 19-3d-cosmic | **Cosmic 3D** (Blender) | Planets, Sun glow, orbits and starfields; scale reveals by pulling the camera out |
+| 20-vector-cutaway | **Vector cutaway explainer** (2D) | Flat vector illustration with clean outlines, a cutaway machine on a pastel landscape, a big serif question headline, a word-by-word caption box with one coloured word |
+
 
 ## The common craft (all 15)
 
